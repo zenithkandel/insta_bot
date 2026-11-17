@@ -29,7 +29,7 @@ def log(label, data):
 
 def make_session(sessionid, csrftoken):
     """Create a curl_cffi session with Chrome TLS fingerprint + user cookies.
-    Returns (session, csrftoken) — csrftoken may be auto-extracted if empty."""
+    Returns (session, csrftoken). If csrftoken is empty, extracts it from homepage cookies."""
     s = requests.Session(impersonate="chrome120")
     # Get device cookies from homepage (datr, mid, ig_did, csrftoken)
     r = s.get("https://www.instagram.com/", headers={"Accept": "text/html"}, timeout=15)
@@ -340,13 +340,13 @@ def cmd_send_dm(payload):
     recipient = payload["recipient"]
     text = payload["text"]
 
-    # Step 1: Get own userId
+    # Step 1: Get own userId + tokens
     s, csrftoken = make_session(sessionid, csrftoken)
     r = s.get("https://www.instagram.com/", headers={"Accept": "text/html"}, timeout=15)
     own_id = extract_own_userid(r.text) or (sessionid.split(":")[0] if ":" in sessionid else None)
     tokens = extract_tokens(r.text)
 
-    log("send_dm: own userId", {"ownId": own_id, "hasFbDtsg": bool(tokens.get("fb_dtsg"))})
+    log("send_dm: own userId", {"ownId": own_id, "hasFbDtsg": bool(tokens.get("fb_dtsg")), "csrftoken": csrftoken[:10] + "..." if csrftoken else "(none)"})
 
     # Step 2: Resolve target userId (STRICT)
     uid, reason = resolve_userid_strict(sessionid, csrftoken, recipient, own_id)
@@ -383,6 +383,8 @@ def cmd_debug(payload):
     r = s.get("https://www.instagram.com/", headers={"Accept": "text/html"}, timeout=15)
     own_id = extract_own_userid(r.text) or (sessionid.split(":")[0] if ":" in sessionid else None)
     tokens = extract_tokens(r.text)
+
+    log("debug: own userId", {"ownId": own_id, "csrftoken": csrftoken[:10] + "..." if csrftoken else "(none)", "hasFbDtsg": bool(tokens.get("fb_dtsg"))})
 
     # Resolve
     uid, resolve_reason = resolve_userid_strict(sessionid, csrftoken, recipient, own_id)
