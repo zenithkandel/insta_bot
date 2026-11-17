@@ -28,14 +28,24 @@ def log(label, data):
 
 
 def make_session(sessionid, csrftoken):
-    """Create a curl_cffi session with Chrome TLS fingerprint + user cookies."""
+    """Create a curl_cffi session with Chrome TLS fingerprint + user cookies.
+    Returns (session, csrftoken) — csrftoken may be auto-extracted if empty."""
     s = requests.Session(impersonate="chrome120")
-    # Get device cookies from homepage (datr, mid, ig_did)
-    s.get("https://www.instagram.com/", headers={"Accept": "text/html"}, timeout=15)
+    # Get device cookies from homepage (datr, mid, ig_did, csrftoken)
+    r = s.get("https://www.instagram.com/", headers={"Accept": "text/html"}, timeout=15)
+    # If user didn't provide csrftoken, grab it from the cookie jar
+    if not csrftoken:
+        try:
+            csrftoken = s.cookies.get("csrftoken")
+            if csrftoken:
+                log("make_session: auto-extracted csrftoken from cookies", {"csrftoken": csrftoken[:10] + "..."})
+        except:
+            pass
     # Overlay user session
     ds_id = sessionid.split(":")[0] if ":" in sessionid else ""
     s.cookies.set("sessionid", sessionid, domain=".instagram.com")
-    s.cookies.set("csrftoken", csrftoken, domain=".instagram.com")
+    if csrftoken:
+        s.cookies.set("csrftoken", csrftoken, domain=".instagram.com")
     if ds_id:
         s.cookies.set("ds_user_id", ds_id, domain=".instagram.com")
     s.headers.update({
@@ -44,7 +54,7 @@ def make_session(sessionid, csrftoken):
         "X-Requested-With": "XMLHttpRequest",
         "Referer": "https://www.instagram.com/",
     })
-    return s
+    return s, csrftoken
 
 
 def extract_tokens(html):
@@ -143,7 +153,7 @@ def resolve_userid_strict(sessionid, csrftoken, username, own_userid):
     Returns (userId, reason) tuple.
     Strictly rejects own userId.
     """
-    s = make_session(sessionid, csrftoken)
+    s, csrftoken = make_session(sessionid, csrftoken)
 
     r = s.get(
         f"https://www.instagram.com/{username}/",
@@ -197,10 +207,11 @@ def send_dm_request(sessionid, csrftoken, user_id, recipient, text, tokens):
 
     cookie = "; ".join([
         f"sessionid={sessionid}",
-        f"csrftoken={csrftoken}",
         f"ds_user_id={ds_user_id}",
         f"ig_did={device_id}",
     ])
+    if csrftoken:
+        cookie = f"csrftoken={csrftoken}; " + cookie
 
     headers = {
         "Content-Type": "application/x-www-form-urlencoded",
@@ -222,12 +233,13 @@ def send_dm_request(sessionid, csrftoken, user_id, recipient, text, tokens):
 
     s = requests.Session(impersonate="chrome120")
     s.cookies.set("sessionid", sessionid, domain=".instagram.com")
-    s.cookies.set("csrftoken", csrftoken, domain=".instagram.com")
+    if csrftoken:
+        s.cookies.set("csrftoken", csrftoken, domain=".instagram.com")
     s.cookies.set("ds_user_id", ds_user_id, domain=".instagram.com")
     s.cookies.set("ig_did", device_id, domain=".instagram.com")
 
     r = s.post(
-        "https://www.instagram.com/api/v1/direct_v2/threads/broadcast/text/",
+        "https://i.instagram.com/api/v1/direct_v2/threads/broadcast/text/",
         data=form_data,
         headers=headers,
         timeout=20,
@@ -273,7 +285,7 @@ def cmd_validate(payload):
     sessionid = payload["sessionid"]
     csrftoken = payload.get("csrftoken", "")
 
-    s = make_session(sessionid, csrftoken)
+    s, csrftoken = make_session(sessionid, csrftoken)
     r = s.get("https://www.instagram.com/", headers={"Accept": "text/html"}, timeout=15)
 
     if r.status_code != 200:
@@ -311,7 +323,7 @@ def cmd_resolve(payload):
     username = payload["username"]
 
     # First get own userId
-    s = make_session(sessionid, csrftoken)
+    s, csrftoken = make_session(sessionid, csrftoken)
     r = s.get("https://www.instagram.com/", headers={"Accept": "text/html"}, timeout=15)
     own_id = extract_own_userid(r.text) or (sessionid.split(":")[0] if ":" in sessionid else None)
 
@@ -329,7 +341,7 @@ def cmd_send_dm(payload):
     text = payload["text"]
 
     # Step 1: Get own userId
-    s = make_session(sessionid, csrftoken)
+    s, csrftoken = make_session(sessionid, csrftoken)
     r = s.get("https://www.instagram.com/", headers={"Accept": "text/html"}, timeout=15)
     own_id = extract_own_userid(r.text) or (sessionid.split(":")[0] if ":" in sessionid else None)
     tokens = extract_tokens(r.text)
@@ -367,7 +379,7 @@ def cmd_debug(payload):
     text = payload["text"]
 
     # Get own userId + tokens
-    s = make_session(sessionid, csrftoken)
+    s, csrftoken = make_session(sessionid, csrftoken)
     r = s.get("https://www.instagram.com/", headers={"Accept": "text/html"}, timeout=15)
     own_id = extract_own_userid(r.text) or (sessionid.split(":")[0] if ":" in sessionid else None)
     tokens = extract_tokens(r.text)
@@ -404,10 +416,11 @@ def cmd_debug(payload):
 
     cookie = "; ".join([
         f"sessionid={sessionid}",
-        f"csrftoken={csrftoken}",
         f"ds_user_id={ds_user_id}",
         f"ig_did={device_id}",
     ])
+    if csrftoken:
+        cookie = f"csrftoken={csrftoken}; " + cookie
 
     headers = {
         "Content-Type": "application/x-www-form-urlencoded",
@@ -428,12 +441,13 @@ def cmd_debug(payload):
 
     s2 = requests.Session(impersonate="chrome120")
     s2.cookies.set("sessionid", sessionid, domain=".instagram.com")
-    s2.cookies.set("csrftoken", csrftoken, domain=".instagram.com")
+    if csrftoken:
+        s2.cookies.set("csrftoken", csrftoken, domain=".instagram.com")
     s2.cookies.set("ds_user_id", ds_user_id, domain=".instagram.com")
     s2.cookies.set("ig_did", device_id, domain=".instagram.com")
 
     r2 = s2.post(
-        "https://www.instagram.com/api/v1/direct_v2/threads/broadcast/text/",
+        "https://i.instagram.com/api/v1/direct_v2/threads/broadcast/text/",
         data=form_data,
         headers=headers,
         timeout=20,
