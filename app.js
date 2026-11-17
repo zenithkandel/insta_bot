@@ -550,15 +550,25 @@
 
       // Build a detailed failure reason from the server response
       const igBody = data.body || {};
-      let reason = igBody.message || igBody.error_title || igBody.feedback_title || '';
+      const debug = data.debug || {};
+      let reason = igBody.message || igBody.error_title || igBody.feedback_title || igBody.htmlTitle || '';
       if (!reason && igBody.error) reason = igBody.error;
+      if (!reason && igBody.htmlError) reason = igBody.htmlError;
       if (!reason && data.error) reason = data.error;
       if (!reason) reason = `HTTP ${data.status || 'unknown'}`;
 
-      const extra = data.meta?.userId ? ` [userId: ${data.meta.userId}]` : '';
+      // Include token status and userId in failure details
+      const extra = [];
+      if (data.meta?.userId) extra.push(`userId: ${data.meta.userId}`);
+      if (data.meta?.ownUserId) extra.push(`ownId: ${data.meta.ownUserId}`);
+      if (debug.tokens?.fb_dtsg) extra.push('fb_dtsg: ✓');
+      if (debug.responseBodyRaw) {
+        const short = debug.responseBodyRaw.substring(0, 120).replace(/\n/g, ' ');
+        extra.push(`raw: ${short}`);
+      }
       return {
         success: false,
-        details: `✗ @${username} → ${reason}${extra}`
+        details: `✗ @${username} → ${reason}${extra.length ? ' [' + extra.join(', ') + ']' : ''}`
       };
     } catch (err) {
       return {
