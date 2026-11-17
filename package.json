@@ -1,0 +1,23 @@
+{
+  "name": "insta-dm-outreach-manager",
+  "version": "1.0.0",
+  "description": "Desktop-first Instagram DM Outreach Manager built on Meta Graph API architecture",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node backend/server.js",
+    "dev:backend": "node --watch backend/server.js",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "build:frontend": "npm --prefix frontend run build",
+    "test": "node tests/feasibility.test.js && node tests/queue.test.js && node tests/safety.test.js"
+  },
+  "keywords": [
+    "instagram",
+    "outreach",
+    "meta-graph-api",
+    "campaign-scheduler",
+    "saas"
+  ],
+  "author": "Engineering Team",
+  "license": "UNLICENSED"
+}
