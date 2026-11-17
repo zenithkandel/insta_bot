@@ -18,6 +18,7 @@
   // ================= STORAGE KEYS =================
   const STORAGE_KEYS = {
     SESSION_ID: 'insta_session_id',
+    CSRF_TOKEN: 'insta_csrf_token',
     RECIPIENTS: 'insta_recipients',
     MESSAGE: 'insta_message',
     SCHEDULE: 'insta_schedule',
@@ -29,6 +30,7 @@
   // ================= APPLICATION STATE =================
   const state = {
     sessionId: '',
+    csrfToken: '',
     recipients: [],
     rawRecipientsText: '',
     messageText: '',
@@ -58,6 +60,8 @@
     sessionStatusText: document.getElementById('sessionStatusText'),
     sessionIdInput: document.getElementById('sessionIdInput'),
     toggleSessionVisibility: document.getElementById('toggleSessionVisibility'),
+    csrfTokenInput: document.getElementById('csrfTokenInput'),
+    toggleCsrfVisibility: document.getElementById('toggleCsrfVisibility'),
     btnSaveSession: document.getElementById('btnSaveSession'),
     btnClearSession: document.getElementById('btnClearSession'),
     sessionNotification: document.getElementById('sessionNotification'),
@@ -124,6 +128,12 @@
     const savedSession = localStorage.getItem(STORAGE_KEYS.SESSION_ID) || '';
     state.sessionId = savedSession;
     dom.sessionIdInput.value = savedSession;
+
+    // 1b. CSRF Token
+    const savedCsrf = localStorage.getItem(STORAGE_KEYS.CSRF_TOKEN) || '';
+    state.csrfToken = savedCsrf;
+    dom.csrfTokenInput.value = savedCsrf;
+
     updateSessionStatusUI();
 
     // 2. Recipients
@@ -184,6 +194,7 @@
 
   function persistSession() {
     localStorage.setItem(STORAGE_KEYS.SESSION_ID, state.sessionId);
+    localStorage.setItem(STORAGE_KEYS.CSRF_TOKEN, state.csrfToken);
   }
 
   function persistRecipients() {
@@ -500,8 +511,8 @@
   /**
    * 2. Direct Browser Session Adapter (Proxy-Backed)
    * Sends the DM through our local Node.js proxy at /api/send-dm,
-   * which forwards it server-side to Instagram with full cookie auth.
-   * This eliminates CORS because the browser only talks to localhost.
+   * which resolves username → userId then forwards to Instagram's
+   * /api/v1/direct_v2/threads/broadcast/text/ endpoint server-side.
    */
   async function dispatchViaDirectBrowser(username, message) {
     if (!state.sessionId) {
@@ -511,13 +522,17 @@
       };
     }
 
+    // Read csrfToken from the session field if present (format: "sessionid|csrfToken" or just sessionid)
+    // The server handles missing csrfToken gracefully.
+    const csrfToken = state.csrfToken || '';
+
     try {
-      // POST to our own local proxy — same-origin, no CORS
       const res = await fetch('/api/send-dm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sessionid: state.sessionId,
+          csrfToken,
           recipient: username,
           text: message
         })
@@ -526,23 +541,29 @@
       const data = await res.json();
 
       if (data.ok) {
+        const threadId = data.body?.payload?.thread_id || data.body?.thread_id || 'unknown';
         return {
           success: true,
-          details: `DM delivered to @${username} via session proxy.`
+          details: `✓ DM sent to @${username} (userId: ${data.meta?.userId || '?'}). Thread: ${threadId}`
         };
       }
 
-      // Instagram returned non-2xx — surface the reason
+      // Build a detailed failure reason from the server response
       const igBody = data.body || {};
-      let reason = igBody.message || igBody.error || `HTTP ${data.status}`;
+      let reason = igBody.message || igBody.error_title || igBody.feedback_title || '';
+      if (!reason && igBody.error) reason = igBody.error;
+      if (!reason && data.error) reason = data.error;
+      if (!reason) reason = `HTTP ${data.status || 'unknown'}`;
+
+      const extra = data.meta?.userId ? ` [userId: ${data.meta.userId}]` : '';
       return {
         success: false,
-        details: `Instagram rejected (@${username}): ${reason}`
+        details: `✗ @${username} → ${reason}${extra}`
       };
     } catch (err) {
       return {
         success: false,
-        details: `[Proxy Error] Could not reach local proxy: ${err.message}. Is the server running?`
+        details: `✗ @${username} → Proxy unreachable: ${err.message}. Is "node server.js" running?`
       };
     }
   }
@@ -611,9 +632,15 @@
 
   // ================= UI RENDERING & STATUS UPDATES =================
   function updateSessionStatusUI() {
-    if (state.sessionId && state.sessionId.trim().length > 5) {
+    const hasSession = state.sessionId && state.sessionId.trim().length > 5;
+    const hasCsrf = state.csrfToken && state.csrfToken.trim().length > 5;
+
+    if (hasSession && hasCsrf) {
       dom.sessionStatusPill.className = 'badge badge-running';
-      dom.sessionStatusText.textContent = 'Session Configured';
+      dom.sessionStatusText.textContent = 'Ready to Send';
+    } else if (hasSession && !hasCsrf) {
+      dom.sessionStatusPill.className = 'badge badge-paused';
+      dom.sessionStatusText.textContent = 'CSRF Missing';
     } else {
       dom.sessionStatusPill.className = 'badge badge-idle';
       dom.sessionStatusText.textContent = 'No Session';
@@ -691,8 +718,8 @@
   function bindEvents() {
     // 1. Session Controls
     dom.btnSaveSession.addEventListener('click', () => {
-      const val = dom.sessionIdInput.value.trim();
-      state.sessionId = val;
+      state.sessionId = dom.sessionIdInput.value.trim();
+      state.csrfToken = dom.csrfTokenInput.value.trim();
       persistSession();
       updateSessionStatusUI();
       dom.sessionNotification.textContent = 'Session saved locally';
@@ -701,7 +728,9 @@
 
     dom.btnClearSession.addEventListener('click', () => {
       state.sessionId = '';
+      state.csrfToken = '';
       dom.sessionIdInput.value = '';
+      dom.csrfTokenInput.value = '';
       persistSession();
       updateSessionStatusUI();
       dom.sessionNotification.textContent = 'Session cleared';
@@ -715,6 +744,16 @@
       } else {
         dom.sessionIdInput.type = 'password';
         dom.toggleSessionVisibility.textContent = 'Show';
+      }
+    });
+
+    dom.toggleCsrfVisibility.addEventListener('click', () => {
+      if (dom.csrfTokenInput.type === 'password') {
+        dom.csrfTokenInput.type = 'text';
+        dom.toggleCsrfVisibility.textContent = 'Hide';
+      } else {
+        dom.csrfTokenInput.type = 'password';
+        dom.toggleCsrfVisibility.textContent = 'Show';
       }
     });
 

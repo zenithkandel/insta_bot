@@ -107,6 +107,25 @@
           </button>
         </div>
 
+        <div class="relative flex-1 w-full">
+          <input
+            type="password"
+            id="csrfTokenInput"
+            placeholder="csrftoken cookie value (required for DM send)"
+            class="font-mono pr-20"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <button
+            type="button"
+            id="toggleCsrfVisibility"
+            class="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 text-[11px] px-1.5 py-0.5 rounded"
+            title="Toggle visibility"
+          >
+            Show
+          </button>
+        </div>
+
         <div class="flex items-center gap-2 shrink-0">
           <button id="btnSaveSession" class="btn btn-primary">
             Save Session
@@ -118,7 +137,7 @@
       </div>
 
       <div class="flex items-center justify-between text-[11px] text-zinc-500 pt-0.5">
-        <span>Session ID is saved exclusively in your browser's <code class="text-zinc-400">localStorage</code>. Never transmitted to external servers or logged.</span>
+        <span>Cookies saved in <code class="text-zinc-400">localStorage</code> only. csrftoken required — find it in DevTools → Application → Cookies → instagram.com</span>
         <span id="sessionNotification" class="text-emerald-400 font-medium"></span>
       </div>
     </section>
