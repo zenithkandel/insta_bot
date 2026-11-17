@@ -498,48 +498,51 @@
   }
 
   /**
-   * 2. Direct Browser Session Adapter (Clearly Isolated Limitation)
-   * Honestly demonstrates the technical boundary: browsers prevent cross-origin direct
-   * calls to Instagram's private endpoints due to CORS and CSRF protections.
+   * 2. Direct Browser Session Adapter (Proxy-Backed)
+   * Sends the DM through our local Node.js proxy at /api/send-dm,
+   * which forwards it server-side to Instagram with full cookie auth.
+   * This eliminates CORS because the browser only talks to localhost.
    */
   async function dispatchViaDirectBrowser(username, message) {
     if (!state.sessionId) {
       return {
         success: false,
-        details: 'No session ID configured. Paste your sessionid cookie above to test direct session adapter.'
+        details: 'No session ID configured. Paste your sessionid cookie above to send DMs.'
       };
     }
 
     try {
-      // Attempting direct fetch to Instagram's web direct API
-      // Note: This clearly illustrates the browser security isolation model.
-      const endpoint = 'https://www.instagram.com/api/v1/direct_v2/web/threads/broadcast/text/';
-      
-      const res = await fetch(endpoint, {
+      // POST to our own local proxy — same-origin, no CORS
+      const res = await fetch('/api/send-dm', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'X-Requested-With': 'XMLHttpRequest'
-        },
-        body: new URLSearchParams({
-          recipient_users: JSON.stringify([username]),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionid: state.sessionId,
+          recipient: username,
           text: message
-        }),
-        mode: 'cors'
+        })
       });
 
-      if (res.ok) {
-        return { success: true, details: `Dispatched via web session to @${username}.` };
-      } else {
+      const data = await res.json();
+
+      if (data.ok) {
         return {
-          success: false,
-          details: `Direct Instagram web API returned HTTP ${res.status}. Client-side session restricted.`
+          success: true,
+          details: `DM delivered to @${username} via session proxy.`
         };
       }
+
+      // Instagram returned non-2xx — surface the reason
+      const igBody = data.body || {};
+      let reason = igBody.message || igBody.error || `HTTP ${data.status}`;
+      return {
+        success: false,
+        details: `Instagram rejected (@${username}): ${reason}`
+      };
     } catch (err) {
       return {
         success: false,
-        details: `[Client Boundary Isolation] Browser blocked cross-origin request: ${err.message}. Private session endpoints require a native desktop extension or authorized Meta Graph API to bypass browser CORS.`
+        details: `[Proxy Error] Could not reach local proxy: ${err.message}. Is the server running?`
       };
     }
   }
