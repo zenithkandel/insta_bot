@@ -1,12 +1,3 @@
-"""
-Instagram DM Worker v3 — uses the ACTUAL GraphQL mutation Instagram's web client uses.
-
-Mutation: IGDirectTextSendMutation (doc_id 28737274835943013)
-Endpoint: POST /api/graphql/
-Root field: xig_direct_text_send_with_slide_messaging_response
-
-This replaces the dead direct_v2 REST endpoints entirely.
-"""
 import json, re, sys, os, io, uuid, time, random
 from curl_cffi import requests
 
@@ -17,7 +8,6 @@ if sys.platform == 'win32':
 IG_APP_ID = "936619743392459"
 IG_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 IGDirectTextSendMutation_DOC_ID = "28737274835943013"
-IGDMessageListOffMsysQuery_DOC_ID = "29008944932098151"
 
 _req_counter = random.randint(1, 99999)
 
@@ -30,15 +20,11 @@ def log(label, data):
     print(f"[PYTHON] {label}: {json.dumps(data, ensure_ascii=False)}", file=sys.stderr, flush=True)
 
 def generate_offline_threading_id():
-    """Generate a proper offline_threading_id (base-10 of 63-bit value from timestamp)."""
     ts = int(time.time() * 1000)
     rand = random.randint(0, 4294967295)
-    # 22-bit binary of random, appended to timestamp
     rand_bin = ("0000000000000000000000" + bin(rand)[2:])[-22:]
     ts_bin = bin(ts)[2:] + rand_bin
-    # Take last 63 bits
     val = ts_bin[-63:]
-    # Convert binary string to decimal string
     return str(int(val, 2))
 
 def make_session(sessionid, csrftoken):
@@ -96,17 +82,6 @@ def extract_tokens(html):
     if m:
         tokens["app_id"] = m.group(1)
 
-    # Extract viewer_id (messaging ID, not IG pk)
-    m = re.search(r'"viewer_id":"(\d+)"', html)
-    if m:
-        tokens["viewer_id"] = m.group(1)
-
-    # Extract actorID / viewer FBID
-    m = re.search(r'"actorID":"(\d+)"', html)
-    if m:
-        tokens["actor_id"] = m.group(1)
-
-    # Haste session
     m = re.search(r'"hsi":"(\d+)"', html)
     if m:
         tokens["hsi"] = m.group(1)
@@ -160,16 +135,9 @@ def resolve_userid_strict(sessionid, csrftoken, username, own_userid):
 def find_thread_fbid(sessionid, csrftoken, recipient_pk):
     """
     Find the thread_fbid for an existing DM conversation with a user.
-    Uses the GraphQL query IGDMessageListOffMsysQuery (doc_id 29008944932098151)
-    or falls back to querying the inbox via GraphQL.
     Returns (thread_fbid, interop_fbid, reason).
     """
     s, csrftoken = make_session(sessionid, csrftoken)
-    tokens = extract_tokens(s.get("https://www.instagram.com/", headers={"Accept": "text/html"}, timeout=15).text)
-
-    # Try GraphQL approach: use get_slide_thread_nullable query
-    # First, try to find the thread via the DM inbox GraphQL
-    # We'll use the legacy inbox API to find the thread, then get thread_fbid from there
     try:
         r = s.get(
             "https://i.instagram.com/api/v1/direct_v2/inbox/?visual_message_return_type=unseen&thread_message_limit=1&persistentBadging=true&limit=50",
@@ -188,7 +156,6 @@ def find_thread_fbid(sessionid, csrftoken, recipient_pk):
                     if u_pk == target_pk:
                         thread_fbid = thread.get("thread_fbid") or thread.get("thread_id", "")
                         thread_key = thread.get("thread_id", "")
-                        # Get the interop messaging user fbid
                         interop_fbid = None
                         for u2 in users:
                             if str(u2.get("pk", "")) == target_pk:
@@ -216,18 +183,12 @@ def send_dm_graphql(sessionid, csrftoken, thread_fbid, recipient_igids, text, to
     Send a DM via the ACTUAL GraphQL mutation Instagram uses:
     IGDirectTextSendMutation (doc_id 28737274835943013)
     POST /api/graphql/
-
-    Variables:
-      ig_thread_igid: thread_fbid (for existing thread)
-      recipient_igids: [interop_messaging_user_fbid] (for new thread)
-      offline_threading_id: generated ID
-      text: {sensitive_string_value: "..."}
     """
     device_id = str(uuid.uuid4())
     offline_threading_id = generate_offline_threading_id()
     ds_user_id = sessionid.split(":")[0] if ":" in sessionid else own_userid or ""
 
-    # Build variables — use EITHER ig_thread_igid OR recipient_igids
+    # Build variables
     variables = {
         "commands": None,
         "forwarded_from_thread_id": None,
@@ -236,11 +197,11 @@ def send_dm_graphql(sessionid, csrftoken, thread_fbid, recipient_igids, text, to
         "mentioned_user_ids": None,
         "mentions": None,
         "offline_threading_id": offline_threading_id,
-        "recipient_igids": json.dumps(recipient_igids) if recipient_igids else None,
+        "recipient_igids": recipient_igids if recipient_igids else None,
         "replied_to_item_id": None,
         "reply_to_message_id": None,
         "sampled": None,
-        "send_attribution": None,
+        "send_attribution": "igd_web_chat_tab:in_thread",
         "text": {"sensitive_string_value": text},
     }
 
@@ -262,16 +223,13 @@ def send_dm_graphql(sessionid, csrftoken, thread_fbid, recipient_igids, text, to
         "dpr": "1",
         "hs_key": tokens.get("hsi", ""),
         "__comet_req": "7",
-        "fb_dtsg": tokens.get("fb_dtsg", ""),
-        "jazoest": tokens.get("jazoest", ""),
-        "lsd": tokens.get("lsd", ""),
         "__spin_r": tokens.get("rev", "1055532492"),
         "__spin_b": "trunk",
         "__spin_t": "",
     }
 
-    # Remove duplicate keys
-    form_data = {k: v for k, v in form_data.items() if v is not None}
+    # Remove None/empty values
+    form_data = {k: v for k, v in form_data.items() if v is not None and v != ""}
 
     cookie = "; ".join([
         f"sessionid={sessionid}",
@@ -306,6 +264,8 @@ def send_dm_graphql(sessionid, csrftoken, thread_fbid, recipient_igids, text, to
         "recipient_igids": recipient_igids,
         "offline_threading_id": offline_threading_id,
         "textLength": len(text),
+        "formFields": list(form_data.keys()),
+        "variables": variables,
     })
 
     s = requests.Session(impersonate="chrome120")
@@ -326,14 +286,19 @@ def send_dm_graphql(sessionid, csrftoken, thread_fbid, recipient_igids, text, to
         "status": r.status_code,
         "contentType": r.headers.get("content-type", ""),
         "bodyLength": len(r.text),
-        "bodyPreview": r.text[:600],
+        "bodyPreview": r.text[:800],
     })
 
-    # Parse response
-    is_json = r.text.strip().startswith("{") or r.text.strip().startswith("[")
+    # Parse response — handle both JSON and "for (;;);{...}" format
+    text = r.text.strip()
+    # Remove "for (;;);" prefix if present
+    if text.startswith("for (;;);"):
+        text = text[9:]
+
+    is_json = text.startswith("{") or text.startswith("[")
     if is_json:
         try:
-            body = r.json()
+            body = json.loads(text)
         except:
             body = {"raw": r.text[:500]}
     else:
@@ -350,6 +315,18 @@ def send_dm_graphql(sessionid, csrftoken, thread_fbid, recipient_igids, text, to
         if body.get("errors"):
             graphql_errors = body["errors"]
             ok = False
+        # Check for error code in payload
+        if body.get("error"):
+            ok = False
+            error_summary = body.get("errorSummary", "")
+            error_desc = body.get("errorDescription", "")
+            graphql_errors = [{"message": error_summary, "description": error_desc}]
+            log("send_dm_graphql: GraphQL error", {
+                "error": body.get("error"),
+                "errorSummary": error_summary,
+                "errorDescription": error_desc,
+            })
+
         # Check for the mutation response
         response_key = "xig_direct_text_send_with_slide_messaging_response"
         if response_key in body.get("data", {}):
@@ -422,24 +399,19 @@ def cmd_send_dm(payload):
 
     log("send_dm: starting", {"ownId": own_id, "csrftoken": csrftoken[:10] + "..." if csrftoken else "(none)"})
 
-    # Resolve recipient userId
     uid, reason = resolve_userid_strict(sessionid, csrftoken, recipient, own_id)
     if not uid:
         return {"ok": False, "status": 0, "reason": reason}
 
-    # Find thread_fbid for existing conversation
     thread_fbid, interop_fbid, thread_reason = find_thread_fbid(sessionid, csrftoken, uid)
 
     if thread_fbid:
         log("send_dm: found existing thread", {"thread_fbid": thread_fbid})
-        # Send to existing thread
         recipient_igids = [interop_fbid] if interop_fbid else None
         ok, status, body, errors, otid = send_dm_graphql(sessionid, csrftoken, thread_fbid, recipient_igids, text, tokens, own_id)
     else:
         log("send_dm: no existing thread, trying new thread", {"reason": thread_reason})
-        # For new thread, we need interop_messaging_user_fbid
-        # Try to get it from the profile page
-        recipient_igids = [str(uid)]  # fallback to pk
+        recipient_igids = [str(uid)]
         ok, status, body, errors, otid = send_dm_graphql(sessionid, csrftoken, None, recipient_igids, text, tokens, own_id)
 
     return {
@@ -453,7 +425,6 @@ def cmd_send_dm(payload):
     }
 
 def cmd_debug(payload):
-    """Send DM and return FULL debug info including raw response."""
     sessionid = payload["sessionid"]
     csrftoken = payload.get("csrftoken", "")
     recipient = payload["recipient"]
@@ -466,7 +437,6 @@ def cmd_debug(payload):
 
     log("debug: own userId", {"ownId": own_id, "csrftoken": csrftoken[:10] + "..." if csrftoken else "(none)"})
 
-    # Resolve
     uid, resolve_reason = resolve_userid_strict(sessionid, csrftoken, recipient, own_id)
     if not uid:
         return {
@@ -477,11 +447,9 @@ def cmd_debug(payload):
             "tokens": {k: v[:20] + "..." for k, v in tokens.items()},
         }
 
-    # Find thread
     thread_fbid, interop_fbid, thread_reason = find_thread_fbid(sessionid, csrftoken, uid)
     log("debug: thread lookup", {"thread_fbid": thread_fbid, "interop_fbid": interop_fbid, "reason": thread_reason})
 
-    # Send
     recipient_igids = [interop_fbid] if interop_fbid else [str(uid)]
     ok, status, body, errors, otid = send_dm_graphql(sessionid, csrftoken, thread_fbid, recipient_igids, text, tokens, own_id)
 
