@@ -3,813 +3,480 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>DM Outreach — Instagram Campaign Manager</title>
+  <title>InstaDM — Direct Outreach Manager</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
-  <!-- Iconify for clean SVG icons -->
   <script src="https://code.iconify.design/3/3.1.1/iconify.min.js"></script>
 </head>
 <body>
 
-  <!-- ============ SIDEBAR NAVIGATION ============ -->
-  <aside id="sidebar" class="sidebar">
-    <div class="sidebar-brand">
-      <div class="brand-mark">
-        <span class="iconify" data-icon="ph:instagram-logo-fill" data-width="22" data-height="22"></span>
+  <!-- ================= TOP APP BAR ================= -->
+  <header class="app-header">
+    <div class="header-left">
+      <div class="brand-badge">
+        <span class="iconify brand-icon" data-icon="ph:paper-plane-tilt-fill" data-width="17"></span>
+        <span class="brand-title">InstaDM</span>
       </div>
-      <div class="brand-text">
-        <span class="brand-title">DM Outreach</span>
-        <span class="brand-subtitle">Campaign Manager</span>
+
+      <!-- Live Headless Chrome Status Indicator -->
+      <div class="browser-status-pill" id="browserStatusContainer" title="Headless Chrome status">
+        <span class="status-indicator-dot" id="browserStatusDot"></span>
+        <span class="status-indicator-label" id="browserStatusLabel">Checking browser...</span>
       </div>
     </div>
 
-    <nav class="sidebar-nav">
-      <button class="nav-item active" data-tab="campaign">
-        <span class="iconify" data-icon="ph:send-plane-fill" data-width="18"></span>
-        <span>Campaign</span>
-      </button>
-      <button class="nav-item" data-tab="recipients">
-        <span class="iconify" data-icon="ph:users-three-fill" data-width="18"></span>
-        <span>Recipients</span>
-      </button>
-      <button class="nav-item" data-tab="schedule">
-        <span class="iconify" data-icon="ph:clock-fill" data-width="18"></span>
-        <span>Schedule</span>
-      </button>
-      <button class="nav-item" data-tab="logs">
-        <span class="iconify" data-icon="ph:list-checks-fill" data-width="18"></span>
-        <span>Activity</span>
-      </button>
-      <button class="nav-item" data-tab="settings">
-        <span class="iconify" data-icon="ph:gear-fill" data-width="18"></span>
-        <span>Settings</span>
-      </button>
-      <button class="nav-item" data-tab="docs">
-        <span class="iconify" data-icon="ph:book-open-text-fill" data-width="18"></span>
-        <span>Documentation</span>
-      </button>
-    </nav>
-
-    <div class="sidebar-footer">
-      <div class="session-card" id="sidebarSessionCard">
-        <div class="session-card-left">
-          <span class="status-dot" id="sidebarStatusDot"></span>
-          <span id="sidebarStatusText">No Session</span>
+    <div class="header-right">
+      <!-- Session / Account Status Card in Header -->
+      <div class="account-pill" id="headerAccountPill">
+        <div class="account-avatar" id="headerAvatar">
+          <span class="iconify" data-icon="ph:user-bold" data-width="12"></span>
         </div>
-        <button id="sidebarSessionBtn" class="btn-icon-sm" title="Manage session">
-          <span class="iconify" data-icon="ph:key-fill" data-width="14"></span>
+        <div class="account-details">
+          <span class="account-username" id="headerUsername">Not Connected</span>
+          <span class="account-status-sub" id="headerAccountSub">No active session</span>
+        </div>
+        <button class="btn-subtle btn-xs" id="btnOpenSessionModal" title="Configure session cookies">
+          <span class="iconify" data-icon="ph:sliders-horizontal-bold" data-width="13"></span>
+          <span id="sessionBtnLabel">Connect</span>
         </button>
       </div>
-    </div>
-  </aside>
 
-  <!-- ============ MAIN CONTENT ============ -->
-  <main class="main">
-
-    <!-- Top Bar -->
-    <header class="topbar">
-      <button id="mobileMenuBtn" class="mobile-menu-btn" title="Menu">
-        <span class="iconify" data-icon="ph:list-fill" data-width="20"></span>
+      <!-- Quick Actions -->
+      <button class="btn-ghost btn-sm" id="btnExportBackup" title="Export campaign settings and IDs as JSON">
+        <span class="iconify" data-icon="ph:export-bold" data-width="14"></span>
+        <span class="hide-mobile">Export</span>
       </button>
-      <h1 id="pageTitle" class="topbar-title">Campaign</h1>
-      <div class="topbar-actions">
-        <span class="status-dot" id="topbarStatusDot"></span>
-        <span id="topbarStatusText" class="topbar-session-label">No Session</span>
-      </div>
-    </header>
+      <button class="btn-ghost btn-sm" id="btnImportBackupTrigger" title="Import backup JSON">
+        <span class="iconify" data-icon="ph:import-bold" data-width="14"></span>
+        <span class="hide-mobile">Import</span>
+      </button>
+      <input type="file" id="backupFileInput" accept=".json" class="sr-only" />
+    </div>
+  </header>
 
-    <!-- ============ TAB: CAMPAIGN ============ -->
-    <div class="tab-content active" id="tab-campaign">
-      <div class="grid-layout">
+  <!-- Mobile View Switcher (for small screens < 960px) -->
+  <div class="mobile-section-nav" id="mobileNav">
+    <button class="mobile-nav-btn active" id="btnMobileComposer">
+      <span class="iconify" data-icon="ph:faders-horizontal-bold" data-width="14"></span>
+      <span>Controls & Message</span>
+    </button>
+    <button class="mobile-nav-btn" id="btnMobileWorkspace">
+      <span class="iconify" data-icon="ph:users-three-bold" data-width="14"></span>
+      <span>Recipients & Logs</span>
+    </button>
+  </div>
 
-        <!-- Session Config Card -->
-        <section class="card card-session">
-          <div class="card-header">
-            <span class="card-title">
-              <span class="iconify" data-icon="ph:key-fill" data-width="16"></span>
-              Session
-            </span>
-            <button id="btnSaveSession" class="btn btn-primary btn-sm">
-              <span class="iconify" data-icon="ph:check-circle-fill" data-width="14"></span>
-              Save & Verify
+  <!-- ================= MAIN 2-COLUMN LAYOUT ================= -->
+  <main class="app-layout">
+
+    <!-- ──────────────────────────────────────────
+         LEFT COLUMN: COMPOSER & CAMPAIGN CONTROLS
+         ────────────────────────────────────────── -->
+    <aside class="composer-column" id="composerColumn">
+
+      <!-- Active Sender Identity Card -->
+      <section class="card sender-card" id="senderCard">
+        <div class="card-header-bar">
+          <span class="section-label">
+            <span class="iconify" data-icon="ph:user-circle-bold" data-width="14"></span>
+            Sender Account
+          </span>
+          <button class="link-btn" id="btnToggleSessionDrawer">Change Cookie</button>
+        </div>
+
+        <div class="sender-info-row" id="senderInfoDisplay">
+          <div class="sender-avatar" id="senderAvatar">
+            <span class="iconify" data-icon="ph:user-bold" data-width="15"></span>
+          </div>
+          <div class="sender-meta">
+            <div class="sender-username-line">
+              <span class="sender-name font-mono" id="senderUsernameText">No session configured</span>
+              <span class="badge badge-neutral" id="senderStatusBadge">Offline</span>
+            </div>
+            <div class="sender-id-line">
+              <span class="text-muted text-xs">Instagram User ID:</span>
+              <span class="font-mono text-xs text-secondary" id="senderUserIdText">—</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Collapsible Session Input Drawer -->
+        <div class="session-drawer hidden" id="sessionDrawer">
+          <div class="form-group">
+            <label for="sessionIdInput" class="form-label">
+              <span>Instagram Session ID (<code class="font-mono">sessionid</code> cookie)</span>
+            </label>
+            <div class="input-with-action">
+              <input type="password" id="sessionIdInput" class="input-field font-mono text-xs" placeholder="Paste sessionid cookie from browser DevTools..." />
+              <button type="button" class="btn-icon-input" id="toggleSessionVisibility" title="Toggle visibility">
+                <span class="iconify" data-icon="ph:eye-bold" data-width="14"></span>
+              </button>
+            </div>
+            <p class="field-hint">Obtained from <code class="font-mono">instagram.com</code> > DevTools > Application > Cookies. Stored locally in your browser.</p>
+          </div>
+
+          <div class="drawer-actions">
+            <button class="btn btn-secondary btn-sm" id="btnCloseSessionDrawer">Cancel</button>
+            <button class="btn btn-primary btn-sm" id="btnSaveSession">
+              <span class="iconify" data-icon="ph:shield-check-bold" data-width="14"></span>
+              <span>Verify & Save</span>
             </button>
           </div>
-          <div class="card-body space-y-3">
-            <div class="form-row">
-              <div class="form-group flex-1">
-                <label class="form-label">Session ID</label>
-                <div class="input-wrap">
-                  <input type="password" id="sessionIdInput" placeholder="sessionid cookie value" class="input font-mono" autocomplete="off" spellcheck="false" />
-                  <button id="toggleSessionVisibility" class="input-action" title="Show / Hide">Show</button>
-                </div>
-              </div>
-              <div class="form-group flex-1">
-                <label class="form-label">CSRF Token</label>
-                <div class="input-wrap">
-                  <input type="password" id="csrfTokenInput" placeholder="csrftoken cookie value" class="input font-mono" autocomplete="off" spellcheck="false" />
-                  <button id="toggleCsrfVisibility" class="input-action" title="Show / Hide">Show</button>
-                </div>
-              </div>
-            </div>
+          <div class="drawer-feedback hidden" id="sessionFeedback"></div>
+        </div>
+      </section>
 
-            <!-- Verified Sender Info Banner -->
-            <div id="senderInfoCard" class="sender-info-box hidden">
-              <div class="sender-header-row">
-                <div class="sender-profile-chip">
-                  <span class="sender-pulse-dot"></span>
-                  <span class="sender-username" id="senderUsernameDisplay">@username</span>
-                  <span class="sender-userid" id="senderUserIdDisplay">(ID: 12345678)</span>
-                </div>
-                <span class="badge badge-success text-[10px]">Verified Session</span>
-              </div>
-              <div class="sender-tokens-row">
-                <span class="token-pill" id="tokenFbDtsgStatus">fb_dtsg: ready</span>
-                <span class="token-pill" id="tokenCsrfStatus">csrftoken: ready</span>
-                <span class="token-pill" id="tokenLsdStatus">lsd: ready</span>
-              </div>
-            </div>
-
-            <!-- Session Verification Error -->
-            <div id="sessionErrorBanner" class="session-error-box hidden">
-              <span class="iconify text-rose-500 shrink-0" data-icon="ph:warning-circle-fill" data-width="16"></span>
-              <span id="sessionErrorText">Session verification failed.</span>
-            </div>
-
-            <p class="form-hint">
-              <span class="iconify" data-icon="ph:info-fill" data-width="13"></span>
-              Find both in DevTools -> Application -> Cookies -> instagram.com. Verifying extracts sender username & tokens upfront.
-            </p>
+      <!-- Message Composer -->
+      <section class="card composer-card">
+        <div class="card-header-bar">
+          <span class="section-label">
+            <span class="iconify" data-icon="ph:chat-teardrop-text-bold" data-width="14"></span>
+            Message Content
+          </span>
+          <div class="tag-actions">
+            <span class="text-xs text-muted">Insert:</span>
+            <button type="button" class="tag-pill" id="btnInsertUsername" title="Insert recipient username variable">
+              <code>{{username}}</code>
+            </button>
           </div>
-        </section>
+        </div>
 
-        <!-- Message Composer Card -->
-        <section class="card">
-          <div class="card-header">
-            <span class="card-title">
-              <span class="iconify" data-icon="ph:chat-circle-text-fill" data-width="16"></span>
-              Message
-            </span>
-            <div class="card-header-right">
-              <span id="charCountBadge" class="badge badge-neutral">0 chars</span>
+        <div class="composer-body">
+          <textarea id="messageTextarea" class="message-editor" rows="4" placeholder="Hi {{username}}! Great connecting with you..."></textarea>
+          
+          <div class="composer-footer">
+            <div class="char-counter">
+              <span id="charCount">0</span> chars • <span id="wordCount">0</span> words
             </div>
+            <button type="button" class="btn-subtle btn-xs" id="btnTogglePreview">
+              <span class="iconify" data-icon="ph:eye-bold" data-width="12"></span>
+              <span>Toggle Preview</span>
+            </button>
           </div>
-          <div class="card-body space-y-3">
-            <textarea id="messageTextarea" rows="4" placeholder="Hi @{{username}}, loved your work! Would love to connect..." class="textarea"></textarea>
-            <div class="message-tools">
-              <button id="btnInsertVariable" class="btn btn-ghost btn-xs" title="Insert {{username}} at cursor">
-                <span class="iconify" data-icon="ph:brackets-curly" data-width="13"></span>
-                Insert variable
-              </button>
-              <div class="preview-box">
-                <span class="preview-label">
-                  <span class="iconify" data-icon="ph:eye-fill" data-width="12"></span>
-                  Preview
-                </span>
-                <span id="livePreviewBox" class="preview-text">Hi @alex_creator, loved your work!</span>
-              </div>
+        </div>
+
+        <!-- Live Personalization Preview -->
+        <div class="live-preview-box hidden" id="livePreviewBox">
+          <div class="preview-header">
+            <span class="text-xs text-muted">Preview as:</span>
+            <span class="font-mono text-xs text-accent" id="previewTargetName">@username</span>
+          </div>
+          <div class="preview-bubble" id="previewBubbleText">Your message preview will appear here...</div>
+        </div>
+      </section>
+
+      <!-- Dispatch & Concurrency Settings -->
+      <section class="card dispatch-settings-card">
+        <div class="card-header-bar">
+          <span class="section-label">
+            <span class="iconify" data-icon="ph:cpu-bold" data-width="14"></span>
+            Dispatch Concurrency
+          </span>
+          <span class="badge badge-neutral" id="selectedCountBadge">0 Selected</span>
+        </div>
+
+        <!-- Parallel Workers Selector -->
+        <div class="setting-block">
+          <div class="setting-title-row">
+            <div>
+              <span class="setting-label">Parallel Workers</span>
+              <p class="setting-desc">Number of concurrent dispatches. Set up to the total recipient count.</p>
+            </div>
+            <div class="worker-stepper">
+              <input type="number" id="parallelWorkersInput" class="stepper-input font-mono" min="1" max="100" value="3" />
             </div>
           </div>
-        </section>
 
-        <!-- Recipients Card -->
-        <section class="card">
-          <div class="card-header">
-            <span class="card-title">
-              <span class="iconify" data-icon="ph:users-three-fill" data-width="16"></span>
-              Recipients
-            </span>
-            <div class="card-header-right">
-              <span id="recipientCountBadge" class="badge badge-neutral">0</span>
-              <button id="btnVerifyRecipients" class="btn btn-secondary btn-xs" title="Verify existence and pre-cache numeric IDs for instant DM dispatch">
-                <span class="iconify" data-icon="ph:magnifying-glass-bold" data-width="13"></span>
-                Verify & Pre-fetch IDs
-              </button>
-              <label class="btn btn-ghost btn-xs cursor-pointer">
-                <span class="iconify" data-icon="ph:upload-fill" data-width="13"></span>
-                Import
-                <input type="file" id="recipientsFileInput" accept=".txt,.csv" class="hidden" />
-              </label>
+          <!-- Slider synced to worker count -->
+          <div class="slider-wrapper">
+            <input type="range" id="parallelWorkersSlider" class="range-slider" min="1" max="20" value="3" />
+            <div class="slider-ticks">
+              <span>1</span>
+              <span id="sliderMidLabel">10</span>
+              <span id="sliderMaxLabel">20 Max</span>
             </div>
           </div>
-          <div class="card-body space-y-2">
-            <textarea id="recipientsTextarea" rows="5" placeholder="alex_designer&#10;studio.flux&#10;creative_labs&#10;(one username per line, or paste CSV)" class="textarea font-mono text-sm"></textarea>
-            <div class="flex items-center justify-between">
-              <div class="flex items-center gap-1.5">
-                <button id="btnDedupRecipients" class="btn btn-ghost btn-xs" title="Remove duplicates">
-                  <span class="iconify" data-icon="ph:files-fill" data-width="13"></span>
-                  Dedupe
-                </button>
-                <button id="btnClearRecipients" class="btn btn-ghost btn-xs" title="Clear all">
-                  <span class="iconify" data-icon="ph:trash-fill" data-width="13"></span>
-                  Clear
-                </button>
-              </div>
-              <span id="dedupNotice" class="text-[11px] text-zinc-500"></span>
-            </div>
 
-            <!-- Recipient Pre-fetch Verification Box -->
-            <div id="recipientsVerificationBox" class="recipients-verify-container hidden">
-              <div class="recipients-verify-header">
-                <span class="recipients-verify-title">
-                  <span class="iconify" data-icon="ph:identification-badge-fill" data-width="14"></span>
-                  Recipient Verification
-                </span>
-                <div class="flex items-center gap-2">
-                  <span id="verifiedSummaryPill" class="badge badge-neutral text-[10px]">0/0 verified</span>
-                  <button id="btnRemoveInvalidRecipients" class="btn btn-danger btn-xs hidden" title="Remove non-existent accounts from list">
-                    Remove Invalid
-                  </button>
-                </div>
-              </div>
-              <div id="verifiedRecipientsList" class="recipients-verified-list">
-                <!-- Dynamically populated -->
-              </div>
-            </div>
+          <!-- Quick Preset Buttons -->
+          <div class="preset-chips">
+            <button type="button" class="preset-chip" data-workers="1">1 (Safe)</button>
+            <button type="button" class="preset-chip active" data-workers="3">3 (Default)</button>
+            <button type="button" class="preset-chip" data-workers="5">5 (Fast)</button>
+            <button type="button" class="preset-chip chip-highlight" id="btnSetWorkersMax">
+              <span class="iconify" data-icon="ph:fast-forward-bold" data-width="12"></span>
+              <span>Max Selected</span>
+            </button>
           </div>
-        </section>
+        </div>
 
-        <!-- Campaign Control Card (spans full width) -->
-        <section class="card card-campaign-control">
-          <div class="card-header">
-            <span class="card-title">
-              <span class="iconify" data-icon="ph:rocket-launch-fill" data-width="16"></span>
-              Campaign Control
-            </span>
-            <div class="card-header-right">
-              <span id="campaignStatusPill" class="badge badge-idle">
-                <span class="badge-dot"></span>
-                <span id="campaignStatusText">Idle</span>
-              </span>
-            </div>
+        <!-- Send Interval Pacing -->
+        <div class="setting-row">
+          <div>
+            <span class="setting-label">Pacing Delay</span>
+            <p class="setting-desc">Seconds to pause between worker dispatches (<code class="font-mono">0s</code> is instant).</p>
           </div>
-          <div class="card-body space-y-4">
-
-            <!-- Pacing + Volume Row -->
-            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div class="form-group">
-                <label class="form-label">Interval (sec)</label>
-                <input type="number" id="pacingIntervalInput" min="0" max="3600" value="0" class="input font-mono text-center" />
-              </div>
-              <div class="form-group">
-                <label class="form-label">Max Volume</label>
-                <input type="number" id="maxVolumeInput" min="1" max="1000" value="50" class="input font-mono text-center" />
-              </div>
-              <div class="form-group">
-                <label class="form-label">Parallel Workers</label>
-                <input type="number" id="parallelWorkersInput" min="1" max="10" value="3" class="input font-mono text-center" />
-              </div>
-              <div class="form-group">
-                <label class="form-label">Retry Attempts</label>
-                <input type="number" id="retryAttemptsInput" min="0" max="5" value="2" class="input font-mono text-center" />
-              </div>
-            </div>
-
-            <!-- Feasibility Bar -->
-            <div id="feasibilityCard" class="feasibility-bar">
-              <span id="feasibilityTitle" class="feasibility-title">Schedule ready</span>
-              <span id="feasibilityDesc" class="feasibility-desc">All recipients fit within pacing limits.</span>
-              <button id="btnFixDeadline" class="btn btn-ghost btn-xs shrink-0 hidden">
-                <span class="iconify" data-icon="ph:wrench-fill" data-width="13"></span>
-                Fix
-              </button>
-            </div>
-
-            <!-- Action Buttons -->
-            <div class="campaign-actions">
-              <button id="btnStartCampaign" class="btn btn-primary">
-                <span class="iconify" data-icon="ph:play-fill" data-width="16"></span>
-                Start Campaign
-              </button>
-              <button id="btnPauseCampaign" class="btn btn-warning hidden" disabled>
-                <span class="iconify" data-icon="ph:pause-fill" data-width="16"></span>
-                Pause
-              </button>
-              <button id="btnResumeCampaign" class="btn btn-primary hidden" disabled>
-                <span class="iconify" data-icon="ph:play-fill" data-width="16"></span>
-                Resume
-              </button>
-              <button id="btnStopCampaign" class="btn btn-danger" disabled>
-                <span class="iconify" data-icon="ph:stop-fill" data-width="16"></span>
-                Stop
-              </button>
-            </div>
-
-            <!-- Progress -->
-            <div class="progress-section">
-              <div class="progress-labels">
-                <span id="currentRecipientBadge" class="text-xs text-zinc-500">No active dispatch</span>
-                <span id="progressPercentageText" class="text-xs font-mono font-semibold">0%</span>
-              </div>
-              <div class="progress-track">
-                <div id="progressFill" class="progress-fill" style="width:0%"></div>
-              </div>
-              <div class="stats-grid">
-                <div class="stat-cell">
-                  <span class="stat-label">Total</span>
-                  <span id="statTotal" class="stat-value">0</span>
-                </div>
-                <div class="stat-cell">
-                  <span class="stat-label">Sent</span>
-                  <span id="statSent" class="stat-value stat-value-success">0</span>
-                </div>
-                <div class="stat-cell">
-                  <span class="stat-label">Failed</span>
-                  <span id="statFailed" class="stat-value stat-value-error">0</span>
-                </div>
-                <div class="stat-cell">
-                  <span class="stat-label">Remaining</span>
-                  <span id="statRemaining" class="stat-value stat-value-muted">0</span>
-                </div>
-              </div>
-            </div>
+          <div class="interval-wrapper">
+            <input type="number" id="pacingIntervalInput" class="stepper-input font-mono" min="0" max="60" value="0" />
+            <span class="input-unit">sec</span>
           </div>
-        </section>
+        </div>
+      </section>
 
-        <!-- Live Activity Feed -->
-        <section class="card">
-          <div class="card-header">
-            <span class="card-title">
-              <span class="iconify" data-icon="ph:broadcast-fill" data-width="16"></span>
-              Live Activity
-            </span>
-            <div class="card-header-right">
-              <button id="btnClearLogs" class="btn btn-ghost btn-xs">
-                <span class="iconify" data-icon="ph:trash-fill" data-width="13"></span>
-                Clear
-              </button>
-            </div>
+      <!-- Campaign Controls & Progress -->
+      <section class="card campaign-run-card">
+        <div class="card-header-bar">
+          <span class="section-label">
+            <span class="iconify" data-icon="ph:broadcast-bold" data-width="14"></span>
+            Campaign Execution
+          </span>
+          <span class="badge badge-idle" id="campaignStatusPill">Idle</span>
+        </div>
+
+        <!-- Primary CTA Buttons -->
+        <div class="action-buttons-group">
+          <button class="btn btn-primary btn-lg w-full" id="btnStartCampaign">
+            <span class="iconify" data-icon="ph:play-fill" data-width="15"></span>
+            <span id="startBtnLabel">Start Campaign</span>
+          </button>
+          <div class="run-actions-row hidden" id="runningActionsRow">
+            <button class="btn btn-warning btn-md flex-1" id="btnPauseCampaign">
+              <span class="iconify" data-icon="ph:pause-fill" data-width="14"></span>
+              <span>Pause</span>
+            </button>
+            <button class="btn btn-primary btn-md flex-1 hidden" id="btnResumeCampaign">
+              <span class="iconify" data-icon="ph:play-fill" data-width="14"></span>
+              <span>Resume</span>
+            </button>
+            <button class="btn btn-danger btn-md flex-1" id="btnStopCampaign">
+              <span class="iconify" data-icon="ph:stop-fill" data-width="14"></span>
+              <span>Stop</span>
+            </button>
           </div>
-          <div class="card-body p-0">
-            <div class="logs-container" id="logsContainer">
-              <div class="logs-empty">
-                <span class="iconify" data-icon="ph:tray-fill" data-width="24"></span>
-                <span>No activity yet. Start a campaign to see live updates.</span>
-              </div>
-            </div>
+        </div>
+
+        <!-- Progress Bar & Metrics -->
+        <div class="progress-section">
+          <div class="progress-meta">
+            <span class="text-xs text-muted" id="currentWorkerActivity">Awaiting start</span>
+            <span class="font-mono text-xs font-semibold" id="progressPercentageText">0%</span>
           </div>
-        </section>
+          <div class="progress-track">
+            <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+          </div>
+        </div>
+
+        <!-- 4 Stat Counters -->
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <span class="metric-title">Selected</span>
+            <span class="metric-value font-mono" id="statSelected">0</span>
+          </div>
+          <div class="metric-card metric-success">
+            <span class="metric-title">Sent</span>
+            <span class="metric-value font-mono" id="statSent">0</span>
+          </div>
+          <div class="metric-card metric-danger">
+            <span class="metric-title">Failed</span>
+            <span class="metric-value font-mono" id="statFailed">0</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-title">Remaining</span>
+            <span class="metric-value font-mono" id="statRemaining">0</span>
+          </div>
+        </div>
+      </section>
+
+    </aside>
+
+    <!-- ──────────────────────────────────────────
+         RIGHT COLUMN: RECIPIENT WORKSPACE & ACTIVITY
+         ────────────────────────────────────────── -->
+    <section class="workspace-column" id="workspaceColumn">
+
+      <!-- Navigation Tabs Switcher -->
+      <div class="workspace-header">
+        <div class="tab-pill-group">
+          <button class="tab-pill active" id="tabRecipientsBtn" data-target="recipientsView">
+            <span class="iconify" data-icon="ph:users-three-bold" data-width="15"></span>
+            <span>Recipients</span>
+            <span class="tab-count-badge" id="recipientsTabBadge">0</span>
+          </button>
+          <button class="tab-pill" id="tabLogsBtn" data-target="logsView">
+            <span class="iconify" data-icon="ph:terminal-window-bold" data-width="15"></span>
+            <span>Live Activity</span>
+            <span class="tab-count-badge" id="logsTabBadge">0</span>
+          </button>
+        </div>
+
+        <!-- Contextual Header Actions -->
+        <div class="workspace-header-actions" id="recipientsHeaderActions">
+          <button class="btn btn-secondary btn-sm" id="btnOpenAddModal">
+            <span class="iconify" data-icon="ph:plus-bold" data-width="13"></span>
+            <span>Add Handles</span>
+          </button>
+          <button class="btn btn-primary btn-sm" id="btnVerifyUnchecked" title="Verify profiles and cache numeric IDs upfront without re-verifying cached handles">
+            <span class="iconify" data-icon="ph:check-circle-bold" data-width="13"></span>
+            <span id="btnVerifyLabel">Verify IDs</span>
+          </button>
+        </div>
+
+        <div class="workspace-header-actions hidden" id="logsHeaderActions">
+          <button class="btn btn-secondary btn-sm" id="btnClearLogs">
+            <span class="iconify" data-icon="ph:trash-bold" data-width="13"></span>
+            <span>Clear Logs</span>
+          </button>
+          <button class="btn btn-secondary btn-sm" id="btnExportLogs">
+            <span class="iconify" data-icon="ph:download-simple-bold" data-width="13"></span>
+            <span>Export JSON</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- VIEW 1: RECIPIENTS MANAGEMENT -->
+      <div class="workspace-view active" id="recipientsView">
+
+        <!-- Search & Filter Bar -->
+        <div class="table-toolbar">
+          <div class="search-box">
+            <span class="iconify search-icon" data-icon="ph:magnifying-glass-bold" data-width="14"></span>
+            <input type="text" id="recipientSearchInput" class="search-input" placeholder="Filter by username, name, or ID..." />
+            <button class="clear-search-btn hidden" id="btnClearSearch" title="Clear search">
+              <span class="iconify" data-icon="ph:x-bold" data-width="12"></span>
+            </button>
+          </div>
+
+          <div class="filter-pills-row">
+            <button class="filter-chip active" data-filter="all">All (<span id="filterCountAll">0</span>)</button>
+            <button class="filter-chip" data-filter="selected">Selected (<span id="filterCountSelected">0</span>)</button>
+            <button class="filter-chip" data-filter="verified">Verified (<span id="filterCountVerified">0</span>)</button>
+            <button class="filter-chip" data-filter="unverified">Unchecked (<span id="filterCountUnverified">0</span>)</button>
+            <button class="filter-chip" data-filter="invalid">Not Found (<span id="filterCountInvalid">0</span>)</button>
+          </div>
+
+          <!-- Bulk Selection Shortcuts -->
+          <div class="bulk-actions-row">
+            <button class="link-btn-sm" id="btnSelectAll">Select All</button>
+            <span class="divider-pipe"></span>
+            <button class="link-btn-sm" id="btnDeselectAll">Deselect All</button>
+            <span class="divider-pipe"></span>
+            <button class="link-btn-sm" id="btnSelectVerified">Select Verified</button>
+            <span class="divider-pipe"></span>
+            <button class="link-btn-sm text-danger" id="btnDeleteSelected">Remove Selected</button>
+            <span class="divider-pipe" id="removeInvalidDivider"></span>
+            <button class="link-btn-sm text-warning hidden" id="btnRemoveInvalid">Remove 404s (<span id="invalidCountBadge">0</span>)</button>
+          </div>
+        </div>
+
+        <!-- Recipients Table Container (Optimized for 100s of handles) -->
+        <div class="table-container">
+          <table class="recipients-table">
+            <thead>
+              <tr>
+                <th class="th-checkbox">
+                  <input type="checkbox" id="masterCheckbox" title="Select / Deselect All visible" />
+                </th>
+                <th class="th-user">Instagram Handle</th>
+                <th class="th-name">Full Name</th>
+                <th class="th-id">Cached User ID</th>
+                <th class="th-verification">Verification</th>
+                <th class="th-status">Send Status</th>
+                <th class="th-action"></th>
+              </tr>
+            </thead>
+            <tbody id="recipientsTableBody">
+              <!-- Rendered dynamically by app.js -->
+            </tbody>
+          </table>
+
+          <!-- Empty State -->
+          <div class="table-empty-state hidden" id="recipientsEmptyState">
+            <span class="iconify empty-icon" data-icon="ph:users-three-light" data-width="40"></span>
+            <p class="empty-title">No recipients added</p>
+            <p class="empty-desc">Add Instagram handles to start preparing your campaign.</p>
+            <button class="btn btn-primary btn-sm" id="btnEmptyAdd">
+              <span class="iconify" data-icon="ph:plus-bold" data-width="13"></span>
+              <span>Add Recipients</span>
+            </button>
+          </div>
+        </div>
 
       </div>
-    </div>
 
-    <!-- ============ TAB: RECIPIENTS ============ -->
-    <div class="tab-content" id="tab-recipients">
-      <div class="grid-layout">
-        <section class="card">
-          <div class="card-header">
-            <span class="card-title">
-              <span class="iconify" data-icon="ph:users-three-fill" data-width="16"></span>
-              Recipient Management
-            </span>
-          </div>
-          <div class="card-body space-y-3">
-            <div class="form-row">
-              <div class="flex-1">
-                <textarea id="recipientsTextareaFull" rows="8" placeholder="alex_designer&#10;studio.flux&#10;creative_labs" class="textarea font-mono"></textarea>
-              </div>
-              <div class="flex flex-col gap-2 w-32">
-                <button id="btnImportFull" class="btn btn-primary btn-sm">
-                  <span class="iconify" data-icon="ph:upload-fill" data-width="14"></span>
-                  Import
-                  <input type="file" id="recipientsFileFull" accept=".txt,.csv" class="hidden" />
-                </button>
-                <button id="btnVerifyFull" class="btn btn-secondary btn-sm" title="Verify all profiles on Instagram and pre-cache IDs">
-                  <span class="iconify" data-icon="ph:magnifying-glass-bold" data-width="14"></span>
-                  Verify IDs
-                </button>
-                <button id="btnDedupeFull" class="btn btn-secondary btn-sm">
-                  <span class="iconify" data-icon="ph:files-fill" data-width="14"></span>
-                  Dedupe
-                </button>
-                <button id="btnClearFull" class="btn btn-danger btn-sm">
-                  <span class="iconify" data-icon="ph:trash-fill" data-width="14"></span>
-                  Clear
-                </button>
-              </div>
-            </div>
-            <div class="recipient-summary">
-              <div class="summary-item">
-                <span class="summary-label">Total Lines</span>
-                <span id="summaryTotal" class="summary-value">0</span>
-              </div>
-              <div class="summary-item">
-                <span class="summary-label">Valid</span>
-                <span id="summaryValid" class="summary-value stat-value-success">0</span>
-              </div>
-              <div class="summary-item">
-                <span class="summary-label">Invalid</span>
-                <span id="summaryInvalid" class="summary-value stat-value-error">0</span>
-              </div>
-              <div class="summary-item">
-                <span class="summary-label">Duplicates</span>
-                <span id="summaryDups" class="summary-value">0</span>
-              </div>
-            </div>
+      <!-- VIEW 2: BEAUTIFIED LIVE ACTIVITY LOGS -->
+      <div class="workspace-view hidden" id="logsView">
 
-            <!-- Recipient Verification Box (Full tab) -->
-            <div id="recipientsFullVerificationBox" class="recipients-verify-container hidden">
-              <div class="recipients-verify-header">
-                <span class="recipients-verify-title">
-                  <span class="iconify" data-icon="ph:identification-badge-fill" data-width="14"></span>
-                  Verified Recipients & Pre-cached Numeric IDs
-                </span>
-                <div class="flex items-center gap-2">
-                  <span id="verifiedSummaryPillFull" class="badge badge-neutral text-[10px]">0/0 verified</span>
-                  <button id="btnRemoveInvalidFull" class="btn btn-danger btn-xs hidden" title="Remove non-existent accounts">
-                    Remove Invalid
-                  </button>
-                </div>
-              </div>
-              <div id="verifiedRecipientsListFull" class="recipients-verified-list">
-                <!-- Dynamically populated -->
-              </div>
-            </div>
-            <p class="form-hint">
-              <span class="iconify" data-icon="ph:info-fill" data-width="13"></span>
-              Valid usernames: letters, numbers, periods, underscores. Max 30 characters. No @ prefix needed.
-            </p>
+        <!-- Logs Filter Toolbar -->
+        <div class="table-toolbar">
+          <div class="search-box">
+            <span class="iconify search-icon" data-icon="ph:magnifying-glass-bold" data-width="14"></span>
+            <input type="text" id="logSearchInput" class="search-input" placeholder="Search logs..." />
           </div>
-        </section>
+
+          <div class="filter-pills-row">
+            <button class="filter-chip active" data-log-filter="all">All Events (<span id="logFilterAll">0</span>)</button>
+            <button class="filter-chip" data-log-filter="sent">Sent (<span id="logFilterSent">0</span>)</button>
+            <button class="filter-chip" data-log-filter="failed">Failed (<span id="logFilterFailed">0</span>)</button>
+            <button class="filter-chip" data-log-filter="system">System (<span id="logFilterSystem">0</span>)</button>
+          </div>
+        </div>
+
+        <!-- Beautified Activity Feed -->
+        <div class="logs-feed-container" id="logsFeedContainer">
+          <!-- Rendered dynamically as sleek monospace cards -->
+        </div>
+
       </div>
-    </div>
 
-    <!-- ============ TAB: SCHEDULE ============ -->
-    <div class="tab-content" id="tab-schedule">
-      <div class="grid-layout">
-        <section class="card">
-          <div class="card-header">
-            <span class="card-title">
-              <span class="iconify" data-icon="ph:calendar-check-fill" data-width="16"></span>
-              Schedule Configuration
-            </span>
-          </div>
-          <div class="card-body space-y-4">
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div class="form-group">
-                <label class="form-label">Start Time</label>
-                <input type="datetime-local" id="startTimeInput" class="input font-mono text-sm" />
-              </div>
-              <div class="form-group">
-                <label class="form-label">Target Deadline</label>
-                <input type="datetime-local" id="deadlineInput" class="input font-mono text-sm" />
-              </div>
-            </div>
-            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div class="form-group">
-                <label class="form-label">Interval (sec)</label>
-                <input type="number" id="pacingIntervalSchedule" min="0" max="3600" value="0" class="input font-mono text-center" />
-              </div>
-              <div class="form-group">
-                <label class="form-label">Max Volume</label>
-                <input type="number" id="maxVolumeSchedule" min="1" max="1000" value="50" class="input font-mono text-center" />
-              </div>
-              <div class="form-group">
-                <label class="form-label">Parallel</label>
-                <input type="number" id="parallelWorkersSchedule" min="1" max="10" value="3" class="input font-mono text-center" />
-              </div>
-              <div class="form-group">
-                <label class="form-label">Retries</label>
-                <input type="number" id="retryAttemptsSchedule" min="0" max="5" value="2" class="input font-mono text-center" />
-              </div>
-            </div>
-            <div id="feasibilityCardSchedule" class="feasibility-bar">
-              <span id="feasibilityTitleSchedule" class="feasibility-title">Ready</span>
-              <span id="feasibilityDescSchedule" class="feasibility-desc">All recipients can be delivered.</span>
-            </div>
-          </div>
-        </section>
-      </div>
-    </div>
-
-    <!-- ============ TAB: LOGS ============ -->
-    <div class="tab-content" id="tab-logs">
-      <div class="grid-layout">
-        <section class="card">
-          <div class="card-header">
-            <span class="card-title">
-              <span class="iconify" data-icon="ph:list-checks-fill" data-width="16"></span>
-              Activity Log
-            </span>
-            <div class="card-header-right">
-              <button id="btnExportLogs" class="btn btn-ghost btn-sm">
-                <span class="iconify" data-icon="ph:download-fill" data-width="14"></span>
-                Export
-              </button>
-              <button id="btnClearLogsFull" class="btn btn-ghost btn-sm">
-                <span class="iconify" data-icon="ph:trash-fill" data-width="14"></span>
-                Clear
-              </button>
-            </div>
-          </div>
-          <div class="card-body p-0">
-            <div class="logs-table-wrap">
-              <table class="logs-table">
-                <thead>
-                  <tr>
-                    <th>Time</th>
-                    <th>Recipient</th>
-                    <th>Status</th>
-                    <th>Details</th>
-                  </tr>
-                </thead>
-                <tbody id="logsTableBody">
-                  <tr>
-                    <td colspan="4" class="logs-table-empty">No activity recorded yet.</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </section>
-      </div>
-    </div>
-
-    <!-- ============ TAB: SETTINGS ============ -->
-    <div class="tab-content" id="tab-settings">
-      <div class="grid-layout">
-        <section class="card">
-          <div class="card-header">
-            <span class="card-title">
-              <span class="iconify" data-icon="ph:sliders-horizontal-fill" data-width="16"></span>
-              Settings
-            </span>
-          </div>
-          <div class="card-body space-y-4">
-            <div class="setting-row">
-              <div class="setting-info">
-                <span class="setting-label">Headless Browser Mode</span>
-                <span class="setting-desc">Uses a real headless Chrome instance to send DMs. Bypasses CORS and TLS fingerprinting. Requires Chrome installed.</span>
-              </div>
-              <span class="badge badge-success">Active</span>
-            </div>
-            <div class="setting-row">
-              <div class="setting-info">
-                <span class="setting-label">Parallel Workers</span>
-                <span class="setting-desc">Number of simultaneous DM sends. Higher = faster but more aggressive.</span>
-              </div>
-              <input type="number" id="settingsParallel" min="1" max="10" value="3" class="input w-20 text-center font-mono" />
-            </div>
-            <div class="setting-row">
-              <div class="setting-info">
-                <span class="setting-label">Retry on Failure</span>
-                <span class="setting-desc">Automatically retry failed sends up to this many times.</span>
-              </div>
-              <input type="number" id="settingsRetry" min="0" max="5" value="2" class="input w-20 text-center font-mono" />
-            </div>
-            <div class="setting-row">
-              <div class="setting-info">
-                <span class="setting-label">Auto-Extract CSRF</span>
-                <span class="setting-desc">Automatically grab csrftoken from Instagram cookies if not provided.</span>
-              </div>
-              <span class="badge badge-success">Always On</span>
-            </div>
-            <div class="setting-row">
-              <div class="setting-info">
-                <span class="setting-label">Backup Export</span>
-                <span class="setting-desc">Export campaign config as JSON (session ID excluded).</span>
-              </div>
-              <button id="btnExportBackup" class="btn btn-secondary btn-sm">
-                <span class="iconify" data-icon="ph:download-fill" data-width="14"></span>
-                Export
-              </button>
-            </div>
-            <div class="setting-row">
-              <div class="setting-info">
-                <span class="setting-label">Import Backup</span>
-                <span class="setting-desc">Restore campaign config from JSON file.</span>
-              </div>
-              <label class="btn btn-secondary btn-sm cursor-pointer">
-                <span class="iconify" data-icon="ph:upload-fill" data-width="14"></span>
-                Import
-                <input type="file" id="backupFileInput" accept=".json" class="hidden" />
-              </label>
-            </div>
-            <div class="setting-row">
-              <div class="setting-info">
-                <span class="setting-label">Reset All Data</span>
-                <span class="setting-desc">Clear session, recipients, logs, and settings.</span>
-              </div>
-              <button id="btnResetApp" class="btn btn-danger btn-sm">
-                <span class="iconify" data-icon="ph:trash-fill" data-width="14"></span>
-                Reset
-              </button>
-            </div>
-          </div>
-        </section>
-      </div>
-    </div>
-
-    <!-- ============ TAB: DOCUMENTATION ============ -->
-    <div class="tab-content" id="tab-docs">
-      <div class="docs-layout">
-        <section class="card docs-card">
-          <div class="card-header">
-            <span class="card-title">
-              <span class="iconify" data-icon="ph:book-open-text-fill" data-width="16"></span>
-              Documentation
-            </span>
-          </div>
-          <div class="card-body docs-body">
-
-            <div class="doc-section">
-              <h2 className="doc-heading">
-                <span class="iconify" data-icon="ph:rocket-launch-fill" data-width="20"></span>
-                Quick Start
-              </h2>
-              <ol class="doc-list">
-                <li><strong>Get your credentials:</strong> Open instagram.com in your browser, open DevTools (F12), go to Application tab, then Cookies, then https://www.instagram.com. Copy the <code>sessionid</code> and <code>csrftoken</code> values.</li>
-                <li><strong>Paste them:</strong> Paste both values into the Session card above and click <strong>Save</strong>.</li>
-                <li><strong>Add recipients:</strong> Paste Instagram usernames (one per line) into the Recipients card, or import a .txt/.csv file.</li>
-                <li><strong>Write your message:</strong> Use <code>{{username}}</code> to auto-insert each recipient's handle.</li>
-                <li><strong>Configure pacing:</strong> Set interval (min 5s), max volume, parallel workers, and retry count.</li>
-                <li><strong>Start Campaign:</strong> Click Start and watch the live activity feed.</li>
-              </ol>
-            </div>
-
-            <div class="doc-section">
-              <h2 class="doc-heading">
-                <span class="iconify" data-icon="ph:gear-fill" data-width="20"></span>
-                How It Works
-              </h2>
-              <p class="doc-text">
-                This tool uses a <strong>headless Chrome browser</strong> (via Selenium) to send Instagram DMs.
-                Unlike traditional API approaches that get blocked by Instagram's TLS fingerprinting and CORS
-                protections, this method launches a real browser instance, injects your session cookie, and
-                executes <code>fetch()</code> calls from within the browser context — making the requests
-                indistinguishable from a real user sitting at their computer.
-              </p>
-              <div class="doc-callout doc-callout-info">
-                <span class="iconify" data-icon="ph:info-fill" data-width="16"></span>
-                <div>
-                  <strong>The flow:</strong> Resolve username to numeric ID, find existing DM thread,
-                  send via GraphQL mutation (<code>IGDirectTextSendMutation</code>, doc_id 28737274835943013),
-                  all from the browser's own context.
-                </div>
-              </div>
-            </div>
-
-            <div class="doc-section">
-              <h2 class="doc-heading">
-                <span class="iconify" data-icon="ph:users-three-fill" data-width="20"></span>
-                Recipients
-              </h2>
-              <p class="doc-text">
-                Enter Instagram usernames without the <code>@</code> symbol. Valid characters: letters,
-                numbers, periods, and underscores. Maximum 30 characters.
-              </p>
-              <div class="doc-formats">
-                <div class="doc-format-card">
-                  <span class="doc-format-label">
-                    <span class="iconify" data-icon="ph:file-txt-fill" data-width="14"></span>
-                    Plain Text (.txt)
-                  </span>
-                  <pre class="doc-code">alex_designer
-studio.flux
-creative_labs</pre>
-                </div>
-                <div class="doc-format-card">
-                  <span class="doc-format-label">
-                    <span class="iconify" data-icon="ph:file-csv-fill" data-width="14"></span>
-                    CSV (.csv)
-                  </span>
-                  <pre class="doc-code">username,email
-alex_designer,alex@example.com
-studio.flux,hi@flux.io</pre>
-                </div>
-              </div>
-            </div>
-
-            <div class="doc-section">
-              <h2 class="doc-heading">
-                <span class="iconify" data-icon="ph:chat-circle-text-fill" data-width="20"></span>
-                Message Variables
-              </h2>
-              <div class="doc-var-table">
-                <div class="doc-var-row">
-                  <code class="doc-var-code">{{username}}</code>
-                  <span class="doc-var-desc">Replaced with the recipient's username (no @)</span>
-                </div>
-                <div class="doc-var-row">
-                  <code class="doc-var-code">{{handle}}</code>
-                  <span class="doc-var-desc">Replaced with @ + username (e.g. @alex_designer)</span>
-                </div>
-              </div>
-              <p class="doc-text mt-3">
-                Example: <code>"Hi @{{username}}, loved your work!"</code> becomes
-                <code>"Hi @alex_designer, loved your work!"</code> when sending to alex_designer.
-              </p>
-            </div>
-
-            <div class="doc-section">
-              <h2 class="doc-heading">
-                <span class="iconify" data-icon="ph:clock-fill" data-width="20"></span>
-                Scheduling & Pacing
-              </h2>
-              <p class="doc-text">
-                Instagram rate-limits DMs. This tool enforces deterministic pacing to stay within limits:
-              </p>
-              <div class="doc-option-grid">
-                <div class="doc-option">
-                  <span class="doc-option-label">Interval (sec)</span>
-                  <span class="doc-option-desc">Minimum seconds between sends. Default: 30. Minimum: 5.</span>
-                </div>
-                <div class="doc-option">
-                  <span class="doc-option-label">Max Volume</span>
-                  <span class="doc-option-desc">Maximum DMs per campaign. Default: 50.</span>
-                </div>
-                <div class="doc-option">
-                  <span class="doc-option-label">Parallel Workers</span>
-                  <span class="doc-option-desc">Simultaneous sends. Default: 3. Range: 1-10. Higher = faster but more aggressive.</span>
-                </div>
-                <div class="doc-option">
-                  <span class="doc-option-label">Retry Attempts</span>
-                  <span class="doc-option-desc">Auto-retry failed sends. Default: 2. Range: 0-5.</span>
-                </div>
-              </div>
-              <div class="doc-callout doc-callout-warning">
-                <span class="iconify" data-icon="ph:warning-fill" data-width="16"></span>
-                <div>
-                  <strong>Start slow.</strong> For a new account, use interval 60s, max volume 20, and parallel 1.
-                  Instagram may flag accounts that send too many DMs too quickly.
-                </div>
-              </div>
-            </div>
-
-            <div class="doc-section">
-              <h2 class="doc-heading">
-                <span class="iconify" data-icon="ph:shield-check-fill" data-width="20"></span>
-                Limitations & Notes
-              </h2>
-              <div class="doc-notes">
-                <div class="doc-note">
-                  <span class="iconify" data-icon="ph:check-circle-fill" data-width="16" class="text-emerald-500"></span>
-                  <span>Works for users who follow you back or have an existing DM thread with you.</span>
-                </div>
-                <div class="doc-note">
-                  <span class="iconify" data-icon="ph:warning-circle-fill" data-width="16" class="text-amber-500"></span>
-                  <span>Cold DMs to strangers may land in "Message Requests" and require approval from the recipient.</span>
-                </div>
-                <div class="doc-note">
-                  <span class="iconify" data-icon="ph:warning-circle-fill" data-width="16" class="text-amber-500"></span>
-                  <span>Instagram may rate-limit or temporarily block accounts that send too many DMs.</span>
-                </div>
-                <div class="doc-note">
-                  <span class="iconify" data-icon="ph:check-circle-fill" data-width="16" class="text-emerald-500"></span>
-                  <span>Session ID is stored locally in your browser. Never sent to any external server.</span>
-                </div>
-                <div class="doc-note">
-                  <span class="iconify" data-icon="ph:check-circle-fill" data-width="16" class="text-emerald-500"></span>
-                  <span>Requires Google Chrome installed on your machine (headless mode).</span>
-                </div>
-                <div class="doc-note">
-                  <span class="iconify" data-icon="ph:info-fill" data-width="16" class="text-blue-500"></span>
-                  <span>CSRF token is auto-extracted from Instagram cookies if not provided manually.</span>
-                </div>
-              </div>
-            </div>
-
-            <div class="doc-section">
-              <h2 class="doc-heading">
-                <span class="iconify" data-icon="ph:question-fill" data-width="20"></span>
-                Troubleshooting
-              </h2>
-              <div class="doc-faq">
-                <div class="doc-faq-item">
-                  <span class="doc-faq-q">Why is my session not working?</span>
-                  <span class="doc-faq-a">Make sure sessionid and csrftoken are from the SAME browser session. Open instagram.com in your browser, then copy both cookies from DevTools. If you logged out and back in, the old sessionid is invalid.</span>
-                </div>
-                <div class="doc-faq-item">
-                  <span class="doc-faq-q">Why do I get "Message Request" errors?</span>
-                  <span class="doc-faq-a">Instagram requires recipients to approve messages from people they don't follow. Try sending to someone who follows you back or has an existing conversation with you.</span>
-                </div>
-                <div class="doc-faq-item">
-                  <span class="doc-faq-q">Can I send to multiple people at once?</span>
-                  <span class="doc-faq-a">Yes. Set Parallel Workers > 1 to send to multiple recipients simultaneously. Keep it at 3 or below to avoid Instagram rate limits.</span>
-                </div>
-                <div class="doc-faq-item">
-                  <span class="doc-faq-q">How do I know if a DM was actually sent?</span>
-                  <span class="doc-faq-a">Check the Live Activity feed in the UI and the terminal output. Green = sent, red = failed. Each log entry shows the recipient, status, and details.</span>
-                </div>
-                <div class="doc-faq-item">
-                  <span class="doc-faq-q">Does this work with Instagram Business accounts?</span>
-                  <span class="doc-faq-a">Yes, as long as you use the sessionid from a Business/Creator account. The DM mechanism is the same.</span>
-                </div>
-              </div>
-            </div>
-
-          </div>
-        </section>
-      </div>
-    </div>
+    </section>
 
   </main>
 
-  <!-- ============ MOBILE OVERLAY ============ -->
-  <div id="sidebarOverlay" class="sidebar-overlay hidden"></div>
+  <!-- ================= ADD RECIPIENTS MODAL ================= -->
+  <div class="modal-backdrop hidden" id="addRecipientsModal">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <div class="modal-title-wrap">
+          <span class="iconify" data-icon="ph:user-plus-bold" data-width="17"></span>
+          <h3 class="modal-title">Add Instagram Recipients</h3>
+        </div>
+        <button class="modal-close-btn" id="btnCloseAddModal" title="Close">
+          <span class="iconify" data-icon="ph:x-bold" data-width="15"></span>
+        </button>
+      </div>
 
-  <!-- Application Logic -->
+      <div class="modal-body">
+        <p class="modal-desc">Paste handles below (one per line, with or without <code class="font-mono">@</code>). Duplicates are stripped automatically.</p>
+        
+        <textarea id="importTextarea" class="import-textarea font-mono" rows="8" placeholder="username_one&#10;@username_two&#10;username_three"></textarea>
+
+        <div class="import-footer-row">
+          <div class="import-file-section">
+            <label for="importFileInput" class="btn-subtle btn-xs">
+              <span class="iconify" data-icon="ph:file-arrow-up-bold" data-width="13"></span>
+              <span>Upload .txt or .csv</span>
+            </label>
+            <input type="file" id="importFileInput" accept=".txt,.csv" class="sr-only" />
+            <span class="text-xs text-muted" id="importFileLabel">No file chosen</span>
+          </div>
+
+          <div class="text-xs text-muted">
+            <span id="importParsedCount">0</span> handles detected
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" id="btnCancelAddModal">Cancel</button>
+        <button class="btn btn-primary btn-sm" id="btnConfirmAddRecipients">
+          <span class="iconify" data-icon="ph:plus-bold" data-width="13"></span>
+          <span>Add to Campaign</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <script src="app.js"></script>
 </body>
 </html>

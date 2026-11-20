@@ -341,6 +341,20 @@ const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
+  if (req.method === 'GET' && req.url === '/api/status') {
+    (async () => {
+      try {
+        const resDaemon = await fetch(`http://127.0.0.1:${DAEMON_PORT}/status`, { signal: AbortSignal.timeout(2000) });
+        if (resDaemon.ok) {
+          const d = await resDaemon.json();
+          return json(res, 200, { ok: true, daemon: true, browser: d.browser || 'ready', driver_active: Boolean(d.driver_active) });
+        }
+      } catch {}
+      return json(res, 200, { ok: true, daemon: false, browser: 'starting', driver_active: false });
+    })();
+    return;
+  }
+
   if (req.method === 'POST') {
     if (req.url === '/api/verify-session') return handleVerifySession(req, res);
     if (req.url === '/api/resolve-recipients') return handleResolveRecipients(req, res);

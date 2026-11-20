@@ -719,6 +719,28 @@ def run_daemon(port=5055):
         def log_message(self, format, *args):
             return  # Suppress default stdout noise
 
+        def do_GET(self):
+            global _driver
+            cmd = self.path.lstrip('/')
+            if cmd == "status" or cmd == "":
+                is_warm = _driver is not None
+                data = {
+                    "ok": True,
+                    "daemon": True,
+                    "browser": "warm" if is_warm else "ready",
+                    "driver_active": is_warm,
+                    "port": port
+                }
+            else:
+                data = {"ok": False, "error": f"Not found: {cmd}"}
+
+            resp_data = json.dumps(data).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(resp_data)))
+            self.end_headers()
+            self.wfile.write(resp_data)
+
         def do_POST(self):
             content_len = int(self.headers.get('Content-Length', 0))
             post_body = self.rfile.read(content_len)
