@@ -620,45 +620,7 @@ def cmd_batch_resolve(payload):
         quit_driver()
 
 def cmd_fast_send(payload):
-    sessionid = payload["sessionid"]
-    csrftoken = payload.get("csrftoken") or payload.get("csrfToken") or ""
-    recipient = payload["recipient"]
-    recipient_uid = payload.get("recipientUserId") or payload.get("userId")
-    text = payload["text"]
-    pre_tokens = payload.get("tokens") or {}
-
-    if not recipient_uid:
-        return cmd_send_dm(payload)
-
-    try:
-        driver = inject_session(sessionid, csrftoken)
-        tokens = pre_tokens if (pre_tokens.get("fb_dtsg") and pre_tokens.get("csrftoken")) else extract_tokens_from_browser(driver)
-
-        recipient_igids = [str(recipient_uid)]
-        thread_fbid = payload.get("threadId")
-
-        if not thread_fbid:
-            thread_fbid, interop_fbid, _ = find_thread_fbid(driver, recipient_uid, csrftoken)
-            if interop_fbid:
-                recipient_igids = [str(interop_fbid)]
-
-        ok, status, body, errors, otid, tid = send_dm_via_browser(driver, thread_fbid, recipient_igids, text, tokens)
-
-        return {
-            "ok": ok,
-            "status": status,
-            "body": body,
-            "threadId": tid,
-            "userId": str(recipient_uid),
-            "errors": errors,
-            "offlineThreadingId": otid
-        }
-    except Exception as e:
-        import traceback
-        traceback.print_exc(file=sys.stderr)
-        return {"ok": False, "status": 0, "reason": str(e)}
-    finally:
-        quit_driver()
+    return cmd_send_dm(payload)
 
 def cmd_validate(payload):
     sessionid = payload["sessionid"]
@@ -675,42 +637,58 @@ def cmd_resolve(payload):
 
 def cmd_send_dm(payload):
     sessionid = payload["sessionid"]
-    csrftoken = payload.get("csrftoken", "")
+    csrftoken = payload.get("csrftoken") or payload.get("csrfToken") or ""
     recipient = payload["recipient"]
+    recipient_uid = payload.get("recipientUserId") or payload.get("userId")
     text = payload["text"]
 
     try:
         driver = inject_session(sessionid, csrftoken)
         tokens = extract_tokens_from_browser(driver)
 
-        # Resolve recipient userId from profile page
-        driver.get(f'https://www.instagram.com/{recipient}/')
-        time.sleep(2)
-        page_source = driver.page_source
-        match = re.search(r'"profilePage_(\d+)"', page_source)
-        if not match:
-            return {"ok": False, "status": 0, "reason": "Could not resolve recipient userId"}
-        uid = match.group(1)
-        log("send_dm: resolved recipient", {"recipient": recipient, "userId": uid})
+        # Resolve recipient userId from profile page if not already provided
+        if not recipient_uid:
+            driver.get(f'https://www.instagram.com/{recipient}/')
+            time.sleep(2)
+            page_source = driver.page_source
+            match = re.search(r'"profilePage_(\d+)"', page_source)
+            if not match:
+                for pat in [r'"user_id":"(\d+)"', r'"pk":"(\d+)"']:
+                    m = re.search(pat, page_source)
+                    if m:
+                        match = m
+                        break
+            if not match:
+                return {"ok": False, "status": 0, "reason": "Could not resolve recipient userId"}
+            recipient_uid = match.group(1)
+            log("send_dm: resolved recipient", {"recipient": recipient, "userId": recipient_uid})
+        else:
+            log("send_dm: using pre-cached recipient userId", {"recipient": recipient, "userId": recipient_uid})
 
         # Find thread_fbid
-        thread_fbid, interop_fbid, thread_reason = find_thread_fbid(driver, uid, csrftoken)
+        thread_fbid, interop_fbid, thread_reason = find_thread_fbid(driver, recipient_uid, tokens.get("csrftoken", csrftoken))
 
         if thread_fbid:
             recipient_igids = [interop_fbid] if interop_fbid else None
         else:
-            recipient_igids = [str(uid)]
+            recipient_igids = [str(recipient_uid)]
 
         # Send DM via browser fetch
         ok, status, body, errors, otid, tid = send_dm_via_browser(driver, thread_fbid, recipient_igids, text, tokens)
+
+        # If sending to thread failed, retry directly with recipient_igids
+        if not ok and thread_fbid and (not body or body.get("error")):
+            log("send_dm: thread send failed, retrying directly with recipient_igids", {"recipient_uid": recipient_uid})
+            ok, status, body, errors, otid, tid = send_dm_via_browser(driver, None, [str(recipient_uid)], text, tokens)
 
         return {
             "ok": ok,
             "status": status,
             "body": body,
-            "threadId": tid,
-            "userId": uid,
+            "threadId": tid or thread_fbid,
+            "userId": str(recipient_uid),
             "errors": errors,
+            "offlineThreadingId": otid
         }
     except Exception as e:
         import traceback

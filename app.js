@@ -689,9 +689,6 @@
       if (recipientUserId) {
         payload.recipientUserId = recipientUserId;
       }
-      if (state.tokens) {
-        payload.tokens = state.tokens;
-      }
 
       const res = await fetch('/api/send-dm', {
         method: 'POST',
