@@ -13,19 +13,6 @@
 
 ---
 
-## 📌 Suggested GitHub Repository Details
-
-If you are publishing or updating the repository on GitHub, copy and paste these exact SEO-optimized strings:
-
-* **Repository Name:** `instadm` (or `insta_bot`)
-* **Short Description:**
-  > High-speed, privacy-first Instagram direct message (DM) campaign manager. Automate personalized cold outreach with sub-second GraphQL delivery, local session authentication, and zero cloud tracking.
-* **Website:** `http://localhost:5050`
-* **Repository Topics / Tags:**
-  `instagram` `instagram-dm` `instagram-outreach` `dm-automation` `instagram-bot` `cold-dm` `campaign-manager` `lead-generation` `headless-chrome` `selenium` `graphql-api` `local-first` `privacy-first` `spa`
-
----
-
 ## 🔒 Security & Local Privacy Guarantee
 
 Unlike cloud-hosted SaaS outreach tools that require handing over your Instagram account credentials or session cookies to remote third-party servers, **InstaDM operates entirely on your personal computer**:
