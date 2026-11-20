@@ -1,6 +1,6 @@
 /**
- * InstaDM — Ultra-Minimalist Campaign Manager
- * Clean, distraction-free progressive sections.
+ * InstaDM — Dedicated Tabbed Architecture
+ * One Tab = One Feature. Pure SVG icons, zero emojis, light beige palette.
  */
 
 (() => {
@@ -15,6 +15,8 @@
     VERIFIED_RECIPIENTS: 'instadm_verified_recipients',
     MESSAGE: 'instadm_message',
     PARALLEL_WORKERS: 'instadm_parallel_workers',
+    PACING_INTERVAL: 'instadm_pacing_interval',
+    ACTIVE_TAB: 'instadm_active_tab',
     LOGS: 'instadm_logs',
   };
 
@@ -22,23 +24,28 @@
   const state = {
     sessionId: '',
     senderInfo: null,
-    recipients: [], // Array of username strings
+    recipients: [],
     selectedRecipients: new Set(),
-    verifiedRecipients: {}, // username -> { exists, userId, fullName, profilePic }
+    verifiedRecipients: {},
     messageText: '',
     parallelWorkers: 3,
+    pacingInterval: 0,
+    activeTab: 'tab-session',
     logs: [],
 
     // Campaign runtime
-    campaignStatus: 'idle', // 'idle' | 'running' | 'paused' | 'stopped' | 'completed'
+    campaignStatus: 'idle',
     currentIndex: 0,
     activeQueue: [],
     sentCount: 0,
     failedCount: 0,
-    rowStatuses: {}, // username -> { status, latency, details }
+    rowStatuses: {},
 
-    // Search query
-    searchQuery: '',
+    // Filters
+    recipientSearchQuery: '',
+    recipientFilter: 'all',
+    logSearchQuery: '',
+    logFilter: 'all',
   };
 
   // ================= DOM ELEMENT CACHE =================
@@ -47,31 +54,39 @@
 
   function cacheDom() {
     [
-      // Header
+      // Navigation
+      'mainNavTabs', 'sessionIndicator', 'recipientsTabBadge', 'dispatchStatusPill',
       'browserStatusContainer', 'browserStatusDot', 'browserStatusLabel',
-      'btnToggleAccountDrawer', 'headerAccountLabel',
+      'headerAccountChip', 'headerAccountHandle',
 
-      // Section 1: Account
-      'btnEditSession', 'accountAvatar', 'accountHandle', 'accountStatusPill', 'accountUserId',
-      'sessionDrawer', 'sessionIdInput', 'btnToggleSessionVisibility', 'btnSaveSession', 'sessionFeedback',
+      // Tab 1: Session
+      'sessionAvatar', 'sessionHandle', 'sessionStatusBadge', 'sessionMetaSub', 'btnClearSession',
+      'sessionIdInput', 'btnToggleSessionVisibility', 'btnSaveSession', 'sessionFeedback',
 
-      // Section 2: Recipients
-      'recipientsCountPill', 'btnOpenAddModal', 'btnVerifyUnchecked', 'btnVerifyLabel',
-      'recipientSearchInput', 'btnSelectAll', 'btnDeselectAll', 'btnDeleteSelected',
+      // Tab 2: Recipients
+      'btnOpenAddModal', 'btnVerifyUnchecked', 'btnVerifyLabel',
+      'recipientSearchInput', 'btnClearSearch',
+      'filterAllCount', 'filterSelectedCount', 'filterVerifiedCount', 'filterUnverifiedCount',
+      'btnSelectAll', 'btnDeselectAll', 'btnDeleteSelected',
       'pipeInvalid', 'btnRemoveInvalid', 'invalidCountBadge',
-      'recipientsList', 'emptyRecipientsState', 'btnEmptyAdd',
+      'masterCheckbox', 'recipientsTableBody', 'recipientsEmptyState', 'btnEmptyAdd',
 
-      // Section 3: Message
-      'btnInsertUsername', 'messageTextarea', 'charCount', 'previewSnippet',
+      // Tab 3: Composer
+      'btnInsertUsername', 'messageTextarea', 'charCount', 'wordCount',
+      'previewTargetName', 'previewBubble',
 
-      // Section 4: Dispatch
-      'campaignStatusPill', 'workerExplainText', 'workerChipsContainer', 'btnWorkersMax',
-      'btnStartCampaign', 'startBtnLabel', 'runningActionsRow',
+      // Tab 4: Dispatch
+      'campaignStatusBadge', 'summarySelectedCount', 'summarySenderHandle', 'summaryWorkersText', 'summaryPacingText',
+      'parallelWorkersInput', 'parallelWorkersSlider', 'sliderMaxText', 'btnWorkersMax', 'workersExplain',
+      'pacingIntervalInput', 'btnStartCampaign', 'startBtnLabel', 'runningActionsRow',
       'btnPauseCampaign', 'btnResumeCampaign', 'btnStopCampaign',
-      'currentWorkerActivity', 'statSent', 'statFailed', 'statRemaining', 'progressFill',
+      'currentWorkerActivity', 'progressPercentageText', 'progressFill',
+      'statSelected', 'statSent', 'statFailed', 'statRemaining',
 
-      // Section 5: Logs
-      'btnClearLogs', 'btnExportLogs', 'logsFeed',
+      // Tab 5: Activity
+      'btnClearLogs', 'btnExportLogs', 'logSearchInput',
+      'logFilterAllCount', 'logFilterSentCount', 'logFilterFailedCount', 'logFilterSystemCount',
+      'logsFeed',
 
       // Add Modal
       'addRecipientsModal', 'btnCloseAddModal', 'btnCancelAddModal', 'importTextarea',
@@ -79,6 +94,9 @@
     ].forEach(id => {
       dom[id] = $(id);
     });
+
+    dom.navTabButtons = Array.from(document.querySelectorAll('.nav-tab'));
+    dom.tabPanels = Array.from(document.querySelectorAll('.tab-panel'));
   }
 
   // ================= PERSISTENCE =================
@@ -104,6 +122,8 @@
 
       state.messageText = localStorage.getItem(STORAGE_KEYS.MESSAGE) || 'Hi {{username}}! Great connecting with you.';
       state.parallelWorkers = Math.max(1, Number(localStorage.getItem(STORAGE_KEYS.PARALLEL_WORKERS)) || 3);
+      state.pacingInterval = Math.max(0, Number(localStorage.getItem(STORAGE_KEYS.PACING_INTERVAL)) || 0);
+      state.activeTab = localStorage.getItem(STORAGE_KEYS.ACTIVE_TAB) || (state.sessionId ? 'tab-recipients' : 'tab-session');
 
       const savedLogs = localStorage.getItem(STORAGE_KEYS.LOGS);
       if (savedLogs) state.logs = JSON.parse(savedLogs);
@@ -121,10 +141,34 @@
       localStorage.setItem(STORAGE_KEYS.VERIFIED_RECIPIENTS, JSON.stringify(state.verifiedRecipients));
       localStorage.setItem(STORAGE_KEYS.MESSAGE, state.messageText);
       localStorage.setItem(STORAGE_KEYS.PARALLEL_WORKERS, String(state.parallelWorkers));
+      localStorage.setItem(STORAGE_KEYS.PACING_INTERVAL, String(state.pacingInterval));
+      localStorage.setItem(STORAGE_KEYS.ACTIVE_TAB, state.activeTab);
       localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(state.logs.slice(0, 150)));
     } catch (err) {
       console.warn('Error saving state:', err);
     }
+  }
+
+  // ================= TAB NAVIGATION =================
+  function switchTab(tabId) {
+    state.activeTab = tabId;
+    saveState();
+
+    dom.navTabButtons.forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.tab === tabId);
+    });
+
+    dom.tabPanels.forEach(panel => {
+      const isTarget = panel.id === tabId;
+      panel.classList.toggle('active', isTarget);
+      panel.classList.toggle('hidden', !isTarget);
+    });
+
+    // Refresh context when switching
+    if (tabId === 'tab-recipients') renderRecipientsTable();
+    else if (tabId === 'tab-composer') updateComposerUI();
+    else if (tabId === 'tab-dispatch') updateDispatchSummaryUI();
+    else if (tabId === 'tab-activity') renderLogs();
   }
 
   // ================= BROWSER STATUS POLLING =================
@@ -157,45 +201,48 @@
       label.textContent = 'Launching Chrome...';
     } else {
       dot.classList.add('dot-offline');
-      label.textContent = 'Browser Standby';
+      label.textContent = 'Chrome Standby';
     }
   }
 
-  // ================= SECTION 1: ACCOUNT =================
-  function updateAccountUI() {
+  // ================= TAB 1: SESSION =================
+  function updateSessionUI() {
     const s = state.senderInfo;
     const hasSession = Boolean(state.sessionId && state.sessionId.trim());
 
     if (hasSession && s && s.authenticated) {
-      dom.headerAccountLabel.textContent = `@${s.username}`;
-      dom.accountHandle.textContent = `@${s.username}`;
-      dom.accountStatusPill.className = 'pill pill-success';
-      dom.accountStatusPill.textContent = 'Connected';
-      dom.accountUserId.textContent = `User ID: ${s.id || s.ds_user_id || 'Verified'}`;
-      dom.btnEditSession.textContent = 'Change';
+      dom.headerAccountHandle.textContent = `@${s.username}`;
+      dom.sessionHandle.textContent = `@${s.username}`;
+      dom.sessionStatusBadge.className = 'badge badge-success';
+      dom.sessionStatusBadge.textContent = 'Connected';
+      dom.sessionMetaSub.textContent = `Instagram User ID: ${s.id || s.ds_user_id || 'Verified'} • Cookies stored locally`;
+      dom.sessionIndicator.classList.add('active');
 
       if (s.profilePic) {
-        dom.accountAvatar.innerHTML = `<img src="${escapeHtml(s.profilePic)}" alt="" />`;
+        dom.sessionAvatar.innerHTML = `<img src="${escapeHtml(s.profilePic)}" alt="" />`;
       } else {
         const init = (s.username || 'U').charAt(0).toUpperCase();
-        dom.accountAvatar.innerHTML = `<span class="font-mono text-xs">${init}</span>`;
+        dom.sessionAvatar.innerHTML = `<span class="font-mono">${init}</span>`;
       }
+      dom.btnClearSession.classList.remove('hidden');
     } else if (hasSession) {
-      dom.headerAccountLabel.textContent = 'Verify Cookie';
-      dom.accountHandle.textContent = 'Cookie Saved';
-      dom.accountStatusPill.className = 'pill pill-warning';
-      dom.accountStatusPill.textContent = 'Unverified';
-      dom.accountUserId.textContent = 'Click Change to test connection';
-      dom.btnEditSession.textContent = 'Verify';
-      dom.accountAvatar.innerHTML = `<span class="iconify" data-icon="ph:cookie-bold" data-width="14"></span>`;
+      dom.headerAccountHandle.textContent = 'Cookie Saved';
+      dom.sessionHandle.textContent = 'Unverified Cookie';
+      dom.sessionStatusBadge.className = 'badge badge-warning';
+      dom.sessionStatusBadge.textContent = 'Unverified';
+      dom.sessionMetaSub.textContent = 'Click Save & Verify to test your session';
+      dom.sessionAvatar.innerHTML = `<span class="iconify" data-icon="ph:cookie-bold" data-width="18"></span>`;
+      dom.sessionIndicator.classList.remove('active');
+      dom.btnClearSession.classList.remove('hidden');
     } else {
-      dom.headerAccountLabel.textContent = 'Connect Session';
-      dom.accountHandle.textContent = 'No session configured';
-      dom.accountStatusPill.className = 'pill pill-neutral';
-      dom.accountStatusPill.textContent = 'Disconnected';
-      dom.accountUserId.textContent = 'Add your browser session cookie to begin';
-      dom.btnEditSession.textContent = 'Connect';
-      dom.accountAvatar.innerHTML = `<span class="iconify" data-icon="ph:user-bold" data-width="14"></span>`;
+      dom.headerAccountHandle.textContent = 'Not Connected';
+      dom.sessionHandle.textContent = 'No session configured';
+      dom.sessionStatusBadge.className = 'badge badge-neutral';
+      dom.sessionStatusBadge.textContent = 'Offline';
+      dom.sessionMetaSub.textContent = 'Enter your session cookie below to authenticate';
+      dom.sessionAvatar.innerHTML = `<span class="iconify" data-icon="ph:user-bold" data-width="18"></span>`;
+      dom.sessionIndicator.classList.remove('active');
+      dom.btnClearSession.classList.add('hidden');
     }
 
     if (dom.sessionIdInput && !dom.sessionIdInput.value) {
@@ -206,13 +253,13 @@
   async function verifySession() {
     const raw = dom.sessionIdInput.value.trim();
     if (!raw) {
-      showFeedback('error', 'Please paste your sessionid cookie first.');
+      showSessionFeedback('error', 'Please enter your sessionid cookie first.');
       return;
     }
 
     dom.btnSaveSession.disabled = true;
     dom.btnSaveSession.innerHTML = `<span class="iconify" data-icon="ph:spinner" data-width="12"></span> Verifying...`;
-    showFeedback('neutral', 'Connecting to Instagram...');
+    showSessionFeedback('neutral', 'Connecting to Instagram & checking authenticated profile...');
 
     try {
       const res = await fetch('/api/verify-session', {
@@ -226,34 +273,42 @@
         state.sessionId = raw;
         state.senderInfo = { ...data.sender, authenticated: true };
         saveState();
-        updateAccountUI();
-        showFeedback('success', `Connected as @${data.sender.username}`);
+        updateSessionUI();
+        updateDispatchSummaryUI();
+        showSessionFeedback('success', `Verified successfully as @${data.sender.username} (User ID: ${data.sender.id})`);
         addLog('system', `Session verified. Connected as @${data.sender.username}`);
-        setTimeout(() => {
-          dom.sessionDrawer.classList.add('hidden');
-          dom.sessionFeedback.classList.add('hidden');
-        }, 1200);
       } else {
         const err = data.reason || data.error || 'Invalid session cookie.';
-        showFeedback('error', `Verification failed: ${err}`);
+        showSessionFeedback('error', `Verification failed: ${err}`);
         addLog('system', `Session verification failed: ${err}`);
       }
     } catch (err) {
-      showFeedback('error', `Network error: ${err.message}`);
+      showSessionFeedback('error', `Connection error: ${err.message}`);
       addLog('system', `Network error: ${err.message}`);
     } finally {
       dom.btnSaveSession.disabled = false;
-      dom.btnSaveSession.textContent = 'Save & Verify';
+      dom.btnSaveSession.innerHTML = `<span class="iconify" data-icon="ph:check-bold" data-width="12"></span> <span>Save & Verify</span>`;
     }
   }
 
-  function showFeedback(type, text) {
-    dom.sessionFeedback.className = `feedback-msg ${type}`;
+  function clearSession() {
+    if (!confirm('Clear your saved session cookie? You will need to re-enter it to dispatch campaigns.')) return;
+    state.sessionId = '';
+    state.senderInfo = null;
+    dom.sessionIdInput.value = '';
+    saveState();
+    updateSessionUI();
+    updateDispatchSummaryUI();
+    addLog('system', 'Session cookie cleared.');
+  }
+
+  function showSessionFeedback(type, text) {
+    dom.sessionFeedback.className = `feedback-box ${type}`;
     dom.sessionFeedback.textContent = text;
     dom.sessionFeedback.classList.remove('hidden');
   }
 
-  // ================= SECTION 2: RECIPIENTS =================
+  // ================= TAB 2: RECIPIENTS =================
   function addRecipients(handles) {
     const cleanList = handles
       .map(h => h.trim().replace(/^@/, '').toLowerCase())
@@ -275,9 +330,9 @@
 
     if (count > 0) {
       saveState();
-      renderRecipients();
-      updateWorkerChips();
-      updatePreview();
+      renderRecipientsTable();
+      updateWorkerControls();
+      updateDispatchSummaryUI();
       addLog('system', `Added ${count} new recipient(s). Total: ${state.recipients.length}`);
     }
     return count;
@@ -287,12 +342,14 @@
     const toDelete = new Set(state.selectedRecipients);
     if (toDelete.size === 0) return;
 
+    if (!confirm(`Remove ${toDelete.size} selected recipient(s)?`)) return;
+
     state.recipients = state.recipients.filter(h => !toDelete.has(h));
     state.selectedRecipients.clear();
     saveState();
-    renderRecipients();
-    updateWorkerChips();
-    updatePreview();
+    renderRecipientsTable();
+    updateWorkerControls();
+    updateDispatchSummaryUI();
     addLog('system', `Removed ${toDelete.size} recipient(s).`);
   }
 
@@ -308,27 +365,29 @@
 
     const removed = before - state.recipients.length;
     saveState();
-    renderRecipients();
-    updateWorkerChips();
-    addLog('system', `Removed ${removed} invalid handles.`);
+    renderRecipientsTable();
+    updateWorkerControls();
+    updateDispatchSummaryUI();
+    addLog('system', `Removed ${removed} non-existent handles.`);
   }
 
   function deleteSingle(handle) {
     state.recipients = state.recipients.filter(h => h !== handle);
     state.selectedRecipients.delete(handle);
     saveState();
-    renderRecipients();
-    updateWorkerChips();
-    updatePreview();
+    renderRecipientsTable();
+    updateWorkerControls();
+    updateDispatchSummaryUI();
   }
 
   function toggleSelect(handle, isSelected) {
     if (isSelected) state.selectedRecipients.add(handle);
     else state.selectedRecipients.delete(handle);
     saveState();
-    updateCounts();
-    updateWorkerChips();
-    updatePreview();
+    updateFilterCounts();
+    updateWorkerControls();
+    updateDispatchSummaryUI();
+    updateMasterCheckbox();
 
     const row = document.getElementById(`row-${handle}`);
     if (row) row.classList.toggle('selected', isSelected);
@@ -337,43 +396,52 @@
   function selectAll() {
     getFilteredRecipients().forEach(h => state.selectedRecipients.add(h));
     saveState();
-    renderRecipients();
-    updateWorkerChips();
-    updatePreview();
+    renderRecipientsTable();
+    updateWorkerControls();
+    updateDispatchSummaryUI();
   }
 
   function deselectAll() {
     state.selectedRecipients.clear();
     saveState();
-    renderRecipients();
-    updateWorkerChips();
-    updatePreview();
+    renderRecipientsTable();
+    updateWorkerControls();
+    updateDispatchSummaryUI();
   }
 
   function getFilteredRecipients() {
-    const q = state.searchQuery.toLowerCase().trim();
-    if (!q) return state.recipients;
+    const q = state.recipientSearchQuery.toLowerCase().trim();
+    const f = state.recipientFilter;
 
     return state.recipients.filter(h => {
       const v = state.verifiedRecipients[h];
-      const matchHandle = h.includes(q);
-      const matchName = v?.fullName?.toLowerCase().includes(q);
-      const matchId = String(v?.userId || '').includes(q);
-      return matchHandle || matchName || matchId;
+      if (f === 'selected' && !state.selectedRecipients.has(h)) return false;
+      if (f === 'verified' && (!v || !v.exists)) return false;
+      if (f === 'unverified' && v) return false;
+
+      if (q) {
+        const matchHandle = h.includes(q);
+        const matchName = v?.fullName?.toLowerCase().includes(q);
+        const matchId = String(v?.userId || '').includes(q);
+        return matchHandle || matchName || matchId;
+      }
+      return true;
     });
   }
 
-  function renderRecipients() {
+  function renderRecipientsTable() {
     const list = getFilteredRecipients();
-    updateCounts();
+    dom.recipientsTabBadge.textContent = state.recipients.length;
+    updateFilterCounts();
 
     if (state.recipients.length === 0) {
-      dom.emptyRecipientsState.classList.remove('hidden');
-      dom.recipientsList.innerHTML = '';
+      dom.recipientsEmptyState.classList.remove('hidden');
+      dom.recipientsTableBody.innerHTML = '';
+      dom.masterCheckbox.checked = false;
       return;
     }
 
-    dom.emptyRecipientsState.classList.add('hidden');
+    dom.recipientsEmptyState.classList.add('hidden');
 
     const html = list.map(handle => {
       const isSelected = state.selectedRecipients.has(handle);
@@ -381,86 +449,116 @@
       const statusObj = state.rowStatuses[handle] || { status: 'pending' };
 
       // Verification pill
-      let verifyPill = `<span class="pill pill-neutral">Unchecked</span>`;
+      let verifyPill = `<span class="badge badge-neutral">Unchecked</span>`;
       if (v) {
         if (v.exists) {
-          verifyPill = `<span class="pill pill-success">Verified</span>`;
+          verifyPill = `<span class="badge badge-success"><span class="iconify" data-icon="ph:check-bold"></span> Verified</span>`;
         } else {
-          verifyPill = `<span class="pill pill-danger">Not Found</span>`;
+          verifyPill = `<span class="badge badge-danger"><span class="iconify" data-icon="ph:x-bold"></span> 404 Missing</span>`;
         }
       }
 
       // Live Send Status
-      let sendPill = '';
+      let sendPill = `<span class="badge badge-neutral">Pending</span>`;
       if (statusObj.status === 'sending') {
-        sendPill = `<span class="pill pill-warning">Sending...</span>`;
+        sendPill = `<span class="badge badge-warning"><span class="iconify" data-icon="ph:spinner"></span> Sending</span>`;
       } else if (statusObj.status === 'sent') {
         const lat = statusObj.latency ? ` (${statusObj.latency})` : '';
-        sendPill = `<span class="pill pill-success">Sent${lat}</span>`;
+        sendPill = `<span class="badge badge-success"><span class="iconify" data-icon="ph:check-circle-fill"></span> Sent${lat}</span>`;
       } else if (statusObj.status === 'failed') {
-        sendPill = `<span class="pill pill-danger" title="${escapeHtml(statusObj.details || 'Failed')}">Failed</span>`;
+        sendPill = `<span class="badge badge-danger" title="${escapeHtml(statusObj.details || 'Failed')}">Failed</span>`;
       }
 
-      const displayName = v?.fullName ? `<span class="row-name">${escapeHtml(v.fullName)}</span>` : '';
+      const fullName = v?.fullName ? escapeHtml(v.fullName) : '<span class="text-muted">—</span>';
+      const userId = v?.userId ? `<code class="font-mono text-xs">${escapeHtml(v.userId)}</code>` : '<span class="text-muted">—</span>';
 
       return `
-        <div class="recipient-row ${isSelected ? 'selected' : ''}" id="row-${handle}">
-          <div class="row-left">
+        <tr id="row-${handle}" class="${isSelected ? 'selected' : ''}">
+          <td class="th-check">
             <input type="checkbox" data-handle="${handle}" class="recipient-checkbox" ${isSelected ? 'checked' : ''} />
-            <a href="https://instagram.com/${handle}" target="_blank" rel="noreferrer" class="row-handle">@${escapeHtml(handle)}</a>
-            ${displayName}
-          </div>
-          <div class="row-right">
-            ${verifyPill}
-            ${sendPill}
+          </td>
+          <td>
+            <a href="https://instagram.com/${handle}" target="_blank" rel="noreferrer" class="user-link">@${escapeHtml(handle)}</a>
+          </td>
+          <td>${fullName}</td>
+          <td>${userId}</td>
+          <td>${verifyPill} ${statusObj.status !== 'pending' ? sendPill : ''}</td>
+          <td class="th-action">
             <button class="delete-row-btn" data-handle="${handle}" title="Remove">
-              <span class="iconify" data-icon="ph:trash-bold" data-width="12"></span>
+              <span class="iconify" data-icon="ph:trash-bold" data-width="13"></span>
             </button>
-          </div>
-        </div>
+          </td>
+        </tr>
       `;
     }).join('');
 
-    dom.recipientsList.innerHTML = html;
+    dom.recipientsTableBody.innerHTML = html;
+    updateMasterCheckbox();
   }
 
-  function updateCounts() {
-    const total = state.recipients.length;
-    const selected = state.selectedRecipients.size;
-    dom.recipientsCountPill.textContent = `${selected} selected of ${total}`;
+  function updateMasterCheckbox() {
+    const list = getFilteredRecipients();
+    if (list.length === 0) {
+      dom.masterCheckbox.checked = false;
+      dom.masterCheckbox.indeterminate = false;
+      return;
+    }
 
-    // Check invalid
-    let invalidCount = 0;
-    let unverifiedCount = 0;
+    const selectedCount = list.filter(h => state.selectedRecipients.has(h)).length;
+    if (selectedCount === list.length) {
+      dom.masterCheckbox.checked = true;
+      dom.masterCheckbox.indeterminate = false;
+    } else if (selectedCount > 0) {
+      dom.masterCheckbox.checked = false;
+      dom.masterCheckbox.indeterminate = true;
+    } else {
+      dom.masterCheckbox.checked = false;
+      dom.masterCheckbox.indeterminate = false;
+    }
+  }
+
+  function updateFilterCounts() {
+    const total = state.recipients.length;
+    let selected = 0;
+    let verified = 0;
+    let unverified = 0;
+    let invalid = 0;
+
     state.recipients.forEach(h => {
+      if (state.selectedRecipients.has(h)) selected++;
       const v = state.verifiedRecipients[h];
-      if (!v) unverifiedCount++;
-      else if (!v.exists) invalidCount++;
+      if (!v) unverified++;
+      else if (v.exists) verified++;
+      else invalid++;
     });
 
-    if (invalidCount > 0) {
+    dom.filterAllCount.textContent = total;
+    dom.filterSelectedCount.textContent = selected;
+    dom.filterVerifiedCount.textContent = verified;
+    dom.filterUnverifiedCount.textContent = unverified;
+
+    if (invalid > 0) {
       dom.pipeInvalid.classList.remove('hidden');
       dom.btnRemoveInvalid.classList.remove('hidden');
-      dom.invalidCountBadge.textContent = invalidCount;
+      dom.invalidCountBadge.textContent = invalid;
     } else {
       dom.pipeInvalid.classList.add('hidden');
       dom.btnRemoveInvalid.classList.add('hidden');
     }
 
-    dom.btnVerifyLabel.textContent = unverifiedCount > 0 ? `Verify IDs (${unverifiedCount})` : 'All Verified';
+    dom.btnVerifyLabel.textContent = unverified > 0 ? `Verify IDs (${unverified})` : 'All Verified';
   }
 
-  // Upfront Verification
   async function batchResolveRecipients() {
     if (!state.sessionId) {
-      alert('Please connect your session cookie first.');
-      dom.sessionDrawer.classList.remove('hidden');
+      alert('Please connect your session cookie in the Session tab first.');
+      switchTab('tab-session');
       return;
     }
 
     const unverified = state.recipients.filter(h => !state.verifiedRecipients[h]);
     if (unverified.length === 0) {
-      alert('All recipient handles already have their Instagram numeric IDs cached in memory.');
+      alert('All recipients already have their numeric IDs pre-cached.');
       return;
     }
 
@@ -496,8 +594,8 @@
         });
 
         saveState();
-        renderRecipients();
-        addLog('system', `Verification complete: ${valid} found, ${notFound} missing.`);
+        renderRecipientsTable();
+        addLog('system', `Verification complete: ${valid} found & cached, ${notFound} missing.`);
       } else {
         alert('Verification error: ' + (data.error || 'Failed'));
       }
@@ -505,57 +603,77 @@
       alert('Network error during verification: ' + err.message);
     } finally {
       dom.btnVerifyUnchecked.disabled = false;
-      updateCounts();
+      updateFilterCounts();
     }
   }
 
-  // ================= SECTION 3: MESSAGE =================
-  function updateMessage() {
+  // ================= TAB 3: COMPOSER =================
+  function updateComposerUI() {
     const text = dom.messageTextarea.value;
     state.messageText = text;
     dom.charCount.textContent = text.length;
+    dom.wordCount.textContent = text.trim() ? text.trim().split(/\s+/).length : 0;
     updatePreview();
     saveState();
   }
 
   function updatePreview() {
-    let target = 'user';
+    let target = 'first_recipient';
     for (const r of state.recipients) {
       if (state.selectedRecipients.has(r)) {
         target = r;
         break;
       }
     }
-    const sample = (dom.messageTextarea.value || 'Hi {{username}}! Great connecting...')
-      .replace(/\{\{\s*username\s*\}\}/gi, `@${target}`);
-    dom.previewSnippet.textContent = `Preview: ${sample.substring(0, 45)}${sample.length > 45 ? '...' : ''}`;
+    dom.previewTargetName.textContent = `@${target}`;
+    const raw = dom.messageTextarea.value || 'Your message preview will appear here...';
+    const personalized = raw
+      .replace(/\{\{\s*username\s*\}\}/gi, target)
+      .replace(/\{\{\s*handle\s*\}\}/gi, `@${target}`);
+    dom.previewBubble.textContent = personalized;
   }
 
-  // ================= SECTION 4: DISPATCH =================
-  function updateWorkerChips() {
+  // ================= TAB 4: DISPATCH =================
+  function updateDispatchSummaryUI() {
+    const selectedCount = state.selectedRecipients.size;
+    dom.summarySelectedCount.textContent = `${selectedCount} Selected`;
+    dom.summarySenderHandle.textContent = state.senderInfo?.username ? `@${state.senderInfo.username}` : 'Not Connected';
+    dom.summaryWorkersText.textContent = `${state.parallelWorkers} Concurrent`;
+    dom.summaryPacingText.textContent = state.pacingInterval === 0 ? '0s (Instant)' : `${state.pacingInterval}s delay`;
+    updateWorkerControls();
+    updateStatsUI();
+  }
+
+  function updateWorkerControls() {
     const selectedCount = state.selectedRecipients.size;
     dom.btnWorkersMax.textContent = `All (${selectedCount})`;
 
-    let w = state.parallelWorkers;
-    if (selectedCount > 0 && w > selectedCount) {
-      w = selectedCount;
-      state.parallelWorkers = w;
-    }
+    const dynamicMax = Math.max(selectedCount > 0 ? selectedCount : 20, 20);
+    dom.parallelWorkersSlider.max = dynamicMax;
+    dom.parallelWorkersInput.max = dynamicMax;
+    dom.sliderMaxText = `${dynamicMax} Max`;
 
-    document.querySelectorAll('.worker-chip[data-workers]').forEach(chip => {
-      const num = Number(chip.dataset.workers);
-      chip.classList.toggle('active', num === w);
+    let currentVal = Number(dom.parallelWorkersInput.value) || state.parallelWorkers || 3;
+    if (selectedCount > 0 && currentVal > selectedCount) currentVal = selectedCount;
+    currentVal = Math.max(1, currentVal);
+
+    state.parallelWorkers = currentVal;
+    dom.parallelWorkersInput.value = currentVal;
+    dom.parallelWorkersSlider.value = currentVal;
+
+    document.querySelectorAll('.preset-chip[data-workers]').forEach(chip => {
+      chip.classList.toggle('active', Number(chip.dataset.workers) === currentVal);
     });
 
-    const isMax = selectedCount > 0 && w === selectedCount && w > 5;
+    const isMax = selectedCount > 0 && currentVal === selectedCount && currentVal > 5;
     dom.btnWorkersMax.classList.toggle('active', isMax);
 
-    dom.workerExplainText.textContent = `Sends to ${w} recipient${w > 1 ? 's' : ''} simultaneously`;
+    dom.workersExplain.textContent = `Dispatches ${currentVal} messages simultaneously.`;
 
     if (state.campaignStatus === 'idle') {
       dom.startBtnLabel.textContent = selectedCount > 0
         ? `Start Campaign (${selectedCount} Recipients)`
-        : 'Start Campaign (Select Recipients Above)';
+        : 'Start Campaign (Select Recipients First)';
     }
   }
 
@@ -566,25 +684,26 @@
 
     state.parallelWorkers = target;
     saveState();
-    updateWorkerChips();
+    updateDispatchSummaryUI();
   }
 
   async function startCampaign() {
     if (!state.sessionId) {
-      alert('Connect your Instagram session cookie first.');
-      dom.sessionDrawer.classList.remove('hidden');
+      alert('Please connect your session cookie in the Session tab first.');
+      switchTab('tab-session');
       return;
     }
 
     if (!state.messageText.trim()) {
-      alert('Please write a message first.');
-      dom.messageTextarea.focus();
+      alert('Please draft your message in the Composer tab first.');
+      switchTab('tab-composer');
       return;
     }
 
     state.activeQueue = state.recipients.filter(h => state.selectedRecipients.has(h));
     if (state.activeQueue.length === 0) {
-      alert('Please check the boxes for the recipients you want to send to.');
+      alert('No recipients selected. Please select recipients in the Recipients tab.');
+      switchTab('tab-recipients');
       return;
     }
 
@@ -598,9 +717,9 @@
     state.rowStatuses = {};
 
     updateCampaignUI();
-    updateStats();
+    updateStatsUI();
 
-    addLog('system', `Campaign started — ${total} recipients with ${workers} parallel workers.`);
+    addLog('system', `Campaign started — ${total} selected recipients with ${workers} concurrent workers.`);
 
     const workerTasks = [];
     for (let i = 0; i < workers; i++) {
@@ -621,9 +740,9 @@
       const currentNum = idx + 1;
       const totalNum = state.activeQueue.length;
 
-      dom.currentWorkerActivity.textContent = `Sending to @${username} (${currentNum}/${totalNum})...`;
+      dom.currentWorkerActivity.textContent = `[Worker #${workerId}] Sending to @${username} (${currentNum}/${totalNum})...`;
       state.rowStatuses[username] = { status: 'sending' };
-      renderRecipients();
+      renderRecipientsTable();
 
       const msg = state.messageText
         .replace(/\{\{\s*username\s*\}\}/gi, username)
@@ -637,15 +756,20 @@
       if (res.ok) {
         state.sentCount++;
         state.rowStatuses[username] = { status: 'sent', latency: latStr };
-        addLog(username, `Sent (${latStr})`);
+        addLog(username, `Sent (${latStr})`, 'sent');
       } else {
         state.failedCount++;
         state.rowStatuses[username] = { status: 'failed', latency: latStr, details: res.error };
-        addLog(username, `Failed: ${res.error}`);
+        addLog(username, `Failed: ${res.error}`, 'failed');
       }
 
-      updateStats();
-      renderRecipients();
+      updateStatsUI();
+      renderRecipientsTable();
+
+      if (state.pacingInterval > 0 && state.campaignStatus === 'running' && state.currentIndex < state.activeQueue.length) {
+        dom.currentWorkerActivity.textContent = `Pacing ${state.pacingInterval}s...`;
+        await sleep(state.pacingInterval * 1000);
+      }
     }
   }
 
@@ -705,15 +829,17 @@
 
   function finishCampaign() {
     state.campaignStatus = 'completed';
-    addLog('system', `Completed! ${state.sentCount} sent, ${state.failedCount} failed.`);
+    addLog('system', `Completed! Sent: ${state.sentCount}, Failed: ${state.failedCount}.`);
     updateCampaignUI();
     dom.currentWorkerActivity.textContent = `Completed (${state.sentCount} sent, ${state.failedCount} failed)`;
   }
 
   function updateCampaignUI() {
     const s = state.campaignStatus;
-    dom.campaignStatusPill.className = `pill pill-${s === 'running' ? 'warning' : s === 'completed' ? 'success' : 'idle'}`;
-    dom.campaignStatusPill.textContent = s.charAt(0).toUpperCase() + s.slice(1);
+    dom.campaignStatusBadge.className = `pill pill-${s === 'running' ? 'warning' : s === 'completed' ? 'success' : 'idle'}`;
+    dom.campaignStatusBadge.textContent = s.charAt(0).toUpperCase() + s.slice(1);
+    dom.dispatchStatusPill.className = `tab-pill pill-${s === 'running' ? 'warning' : s === 'completed' ? 'success' : 'idle'}`;
+    dom.dispatchStatusPill.textContent = s.charAt(0).toUpperCase() + s.slice(1);
 
     if (s === 'running') {
       dom.btnStartCampaign.classList.add('hidden');
@@ -731,50 +857,96 @@
     } else {
       dom.btnStartCampaign.classList.remove('hidden');
       dom.runningActionsRow.classList.add('hidden');
-      updateWorkerChips();
+      updateWorkerControls();
     }
   }
 
-  function updateStats() {
+  function updateStatsUI() {
     const total = state.activeQueue.length > 0 ? state.activeQueue.length : state.selectedRecipients.size;
     const processed = state.sentCount + state.failedCount;
     const remaining = Math.max(0, total - processed);
     const pct = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
 
+    dom.statSelected.textContent = total;
     dom.statSent.textContent = state.sentCount;
     dom.statFailed.textContent = state.failedCount;
     dom.statRemaining.textContent = remaining;
+    dom.progressPercentageText.textContent = `${pct}%`;
     dom.progressFill.style.width = `${pct}%`;
   }
 
-  // ================= SECTION 5: ACTIVITY LOGS =================
-  function addLog(who, msg) {
+  // ================= TAB 5: ACTIVITY LOGS =================
+  function addLog(handle, details, status = 'system') {
     const d = new Date();
     const time = d.toTimeString().split(' ')[0];
-    state.logs.unshift({ time, who, msg });
+    state.logs.unshift({ time, handle, details, status });
     saveState();
     renderLogs();
   }
 
+  function getFilteredLogs() {
+    const q = state.logSearchQuery.toLowerCase().trim();
+    const f = state.logFilter;
+
+    return state.logs.filter(l => {
+      if (f === 'sent' && l.status !== 'sent') return false;
+      if (f === 'failed' && l.status !== 'failed') return false;
+      if (f === 'system' && l.handle !== 'system') return false;
+
+      if (q) {
+        return l.handle.toLowerCase().includes(q) || l.details.toLowerCase().includes(q);
+      }
+      return true;
+    });
+  }
+
   function renderLogs() {
-    if (state.logs.length === 0) {
-      dom.logsFeed.innerHTML = `<div class="empty-logs">No activity recorded yet.</div>`;
+    updateLogCounts();
+    const list = getFilteredLogs();
+
+    if (list.length === 0) {
+      dom.logsFeed.innerHTML = `<div class="empty-state">No activity matching filter.</div>`;
       return;
     }
 
-    const html = state.logs.map(l => {
-      const isSys = l.who === 'system';
-      const whoLabel = isSys ? 'system' : `@${escapeHtml(l.who)}`;
+    const html = list.map(l => {
+      const isSys = l.handle === 'system';
+      const pillClass = l.status === 'sent' ? 'sent' : l.status === 'failed' ? 'failed' : 'system';
+      const handleDisplay = isSys ? 'system' : `@${escapeHtml(l.handle)}`;
+
       return `
-        <div class="log-row">
+        <div class="log-item">
           <span class="log-time">${l.time}</span>
-          <span class="log-who ${isSys ? 'text-muted' : ''}">${whoLabel}</span>
-          <span class="log-msg">${escapeHtml(l.msg)}</span>
+          <span class="log-pill ${pillClass}">${l.status}</span>
+          <span class="log-handle">${handleDisplay}</span>
+          <span class="log-msg">${escapeHtml(l.details)}</span>
         </div>
       `;
     }).join('');
 
     dom.logsFeed.innerHTML = html;
+  }
+
+  function updateLogCounts() {
+    let sent = 0;
+    let failed = 0;
+    let sys = 0;
+
+    state.logs.forEach(l => {
+      if (l.status === 'sent') sent++;
+      else if (l.status === 'failed') failed++;
+      if (l.handle === 'system') sys++;
+    });
+
+    dom.logFilterAllCount.textContent = state.logs.length;
+    dom.logFilterSentCount.textContent = sent;
+    dom.logFilterFailedCount.textContent = failed;
+    dom.logFilterSystemCount.textContent = sys;
+  }
+
+  // ================= UTILITIES =================
+  function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   function escapeHtml(str) {
@@ -789,15 +961,15 @@
 
   // ================= EVENT BINDINGS =================
   function bindEvents() {
-    // Header & Section 1: Account
-    dom.btnToggleAccountDrawer.addEventListener('click', () => {
-      dom.sessionDrawer.classList.toggle('hidden');
-      if (!dom.sessionDrawer.classList.contains('hidden')) dom.sessionIdInput.focus();
+    // Nav Tabs
+    dom.navTabButtons.forEach(btn => {
+      btn.addEventListener('click', () => switchTab(btn.dataset.tab));
     });
-    dom.btnEditSession.addEventListener('click', () => {
-      dom.sessionDrawer.classList.toggle('hidden');
-      if (!dom.sessionDrawer.classList.contains('hidden')) dom.sessionIdInput.focus();
-    });
+
+    // Header Account Chip -> jump to Session tab
+    dom.headerAccountChip.addEventListener('click', () => switchTab('tab-session'));
+
+    // Tab 1: Session
     dom.btnToggleSessionVisibility.addEventListener('click', () => {
       const inp = dom.sessionIdInput;
       const isPass = inp.type === 'password';
@@ -805,11 +977,33 @@
       dom.btnToggleSessionVisibility.textContent = isPass ? 'Hide' : 'Show';
     });
     dom.btnSaveSession.addEventListener('click', verifySession);
+    dom.btnClearSession.addEventListener('click', clearSession);
 
-    // Section 2: Recipients
+    // Tab 2: Recipients
     dom.recipientSearchInput.addEventListener('input', e => {
-      state.searchQuery = e.target.value;
-      renderRecipients();
+      state.recipientSearchQuery = e.target.value;
+      dom.btnClearSearch.classList.toggle('hidden', !e.target.value);
+      renderRecipientsTable();
+    });
+    dom.btnClearSearch.addEventListener('click', () => {
+      dom.recipientSearchInput.value = '';
+      state.recipientSearchQuery = '';
+      dom.btnClearSearch.classList.add('hidden');
+      renderRecipientsTable();
+    });
+
+    document.querySelectorAll('.filter-chip[data-filter]').forEach(chip => {
+      chip.addEventListener('click', () => {
+        document.querySelectorAll('.filter-chip[data-filter]').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        state.recipientFilter = chip.dataset.filter;
+        renderRecipientsTable();
+      });
+    });
+
+    dom.masterCheckbox.addEventListener('change', e => {
+      if (e.target.checked) selectAll();
+      else deselectAll();
     });
     dom.btnSelectAll.addEventListener('click', selectAll);
     dom.btnDeselectAll.addEventListener('click', deselectAll);
@@ -817,17 +1011,17 @@
     dom.btnRemoveInvalid.addEventListener('click', removeInvalid);
     dom.btnVerifyUnchecked.addEventListener('click', batchResolveRecipients);
 
-    dom.recipientsList.addEventListener('change', e => {
+    dom.recipientsTableBody.addEventListener('change', e => {
       if (e.target.classList.contains('recipient-checkbox')) {
         toggleSelect(e.target.dataset.handle, e.target.checked);
       }
     });
-    dom.recipientsList.addEventListener('click', e => {
+    dom.recipientsTableBody.addEventListener('click', e => {
       const btn = e.target.closest('.delete-row-btn');
       if (btn) deleteSingle(btn.dataset.handle);
     });
 
-    // Add Recipients Modal
+    // Add Modal
     dom.btnOpenAddModal.addEventListener('click', () => {
       dom.addRecipientsModal.classList.remove('hidden');
       dom.importTextarea.focus();
@@ -836,12 +1030,9 @@
       dom.addRecipientsModal.classList.remove('hidden');
       dom.importTextarea.focus();
     });
-    dom.btnCloseAddModal.addEventListener('click', () => {
-      dom.addRecipientsModal.classList.add('hidden');
-    });
-    dom.btnCancelAddModal.addEventListener('click', () => {
-      dom.addRecipientsModal.classList.add('hidden');
-    });
+    dom.btnCloseAddModal.addEventListener('click', () => dom.addRecipientsModal.classList.add('hidden'));
+    dom.btnCancelAddModal.addEventListener('click', () => dom.addRecipientsModal.classList.add('hidden'));
+
     dom.importTextarea.addEventListener('input', e => {
       const lines = e.target.value.split('\n').filter(l => l.trim().length > 0);
       dom.importParsedCount.textContent = `${lines.length} handles detected`;
@@ -864,31 +1055,49 @@
       dom.addRecipientsModal.classList.add('hidden');
     });
 
-    // Section 3: Message
-    dom.messageTextarea.addEventListener('input', updateMessage);
+    // Tab 3: Composer
+    dom.messageTextarea.addEventListener('input', updateComposerUI);
     dom.btnInsertUsername.addEventListener('click', () => {
       const pos = dom.messageTextarea.selectionStart;
       const text = dom.messageTextarea.value;
       dom.messageTextarea.value = text.substring(0, pos) + '{{username}}' + text.substring(pos);
-      updateMessage();
+      updateComposerUI();
       dom.messageTextarea.focus();
     });
 
-    // Section 4: Dispatch
-    document.querySelectorAll('.worker-chip[data-workers]').forEach(chip => {
+    // Tab 4: Dispatch
+    dom.parallelWorkersSlider.addEventListener('input', e => setWorkers(Number(e.target.value)));
+    dom.parallelWorkersInput.addEventListener('change', e => setWorkers(Number(e.target.value)));
+    document.querySelectorAll('.preset-chip[data-workers]').forEach(chip => {
       chip.addEventListener('click', () => setWorkers(Number(chip.dataset.workers)));
     });
-    dom.btnWorkersMax.addEventListener('click', () => {
-      setWorkers(state.selectedRecipients.size || 20);
+    dom.btnWorkersMax.addEventListener('click', () => setWorkers(state.selectedRecipients.size || 20));
+    dom.pacingIntervalInput.addEventListener('change', e => {
+      state.pacingInterval = Math.max(0, Number(e.target.value) || 0);
+      saveState();
+      updateDispatchSummaryUI();
     });
+
     dom.btnStartCampaign.addEventListener('click', startCampaign);
     dom.btnPauseCampaign.addEventListener('click', pauseCampaign);
     dom.btnResumeCampaign.addEventListener('click', resumeCampaign);
     dom.btnStopCampaign.addEventListener('click', stopCampaign);
 
-    // Section 5: Logs
+    // Tab 5: Activity
+    dom.logSearchInput.addEventListener('input', e => {
+      state.logSearchQuery = e.target.value;
+      renderLogs();
+    });
+    document.querySelectorAll('.filter-chip[data-log-filter]').forEach(chip => {
+      chip.addEventListener('click', () => {
+        document.querySelectorAll('.filter-chip[data-log-filter]').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        state.logFilter = chip.dataset.logFilter;
+        renderLogs();
+      });
+    });
     dom.btnClearLogs.addEventListener('click', () => {
-      if (confirm('Clear logs?')) {
+      if (confirm('Clear activity logs?')) {
         state.logs = [];
         saveState();
         renderLogs();
@@ -912,13 +1121,15 @@
     bindEvents();
 
     dom.messageTextarea.value = state.messageText;
+    dom.pacingIntervalInput.value = state.pacingInterval;
 
-    updateAccountUI();
-    renderRecipients();
-    updateMessage();
-    updateWorkerChips();
-    updateStats();
+    updateSessionUI();
+    renderRecipientsTable();
+    updateComposerUI();
+    updateDispatchSummaryUI();
     renderLogs();
+
+    switchTab(state.activeTab);
 
     pollBrowserStatus();
     setInterval(pollBrowserStatus, 3000);

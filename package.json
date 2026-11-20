@@ -1,19 +1,25 @@
 {
-  "name": "insta-dm-manager",
-  "version": "2.0.0",
-  "description": "Lightweight Single-Screen Instagram DM Campaign Manager with Local Persistence",
-  "private": true,
+  "name": "instadm",
+  "version": "2.4.0",
+  "description": "High-Speed Local Instagram DM Campaign Manager with GraphQL Mutation Delivery",
+  "main": "server.js",
   "type": "module",
   "scripts": {
     "start": "node server.js",
     "test": "node test.js"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zenithkandel/insta_bot.git"
+  },
   "keywords": [
     "instagram",
-    "dm-manager",
-    "spa",
-    "localstorage"
+    "direct-message",
+    "dm-outreach",
+    "campaign-manager",
+    "automation",
+    "local-first"
   ],
-  "author": "Engineering Team",
-  "license": "UNLICENSED"
+  "author": "Zenith Kandel <kandelze123@gmail.com>",
+  "license": "MIT"
 }
