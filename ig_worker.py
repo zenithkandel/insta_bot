@@ -1,12 +1,33 @@
-import json, re, sys, os, io, uuid, time, random
-from curl_cffi import requests
+"""
+Instagram DM Worker v4 — Headless Chrome + Selenium
+
+Why this works where everything else failed:
+  - Instagram's /api/graphql/ endpoint does TLS fingerprinting + header
+    fingerprinting + checks for browser-specific tokens that curl_cffi
+    cannot fully replicate, regardless of cookies.
+  - Headless Chrome IS a real browser: same TLS fingerprint, same headers,
+    same JS execution, same cookie handling as a normal browser tab.
+  - We inject the sessionid cookie into the browser, navigate to instagram.com,
+    then use driver.execute_async_script() to run fetch() calls from the
+    same origin — CORS, CSRF, cookies all handled by the browser natively.
+
+Usage:
+  python ig_worker.py validate  '<json>'
+  python ig_worker.py resolve   '<json>'
+  python ig_worker.py send-dm   '<json>'
+  python ig_worker.py debug     '<json>'
+"""
+import json, re, sys, os, io, uuid, time, random, base64
 
 if sys.platform == 'win32':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+
 IG_APP_ID = "936619743392459"
-IG_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 IGDirectTextSendMutation_DOC_ID = "28737274835943013"
 
 _req_counter = random.randint(1, 99999)
@@ -27,154 +48,281 @@ def generate_offline_threading_id():
     val = ts_bin[-63:]
     return str(int(val, 2))
 
-def make_session(sessionid, csrftoken):
-    s = requests.Session(impersonate="chrome120")
-    r = s.get("https://www.instagram.com/", headers={"Accept": "text/html"}, timeout=15)
-    if not csrftoken:
+# ──────────────────────────────────────────────
+# Headless Chrome driver
+# ──────────────────────────────────────────────
+_driver = None
+
+def get_driver():
+    global _driver
+    if _driver is not None:
+        return _driver
+
+    opts = Options()
+    opts.add_argument('--headless=new')
+    opts.add_argument('--no-sandbox')
+    opts.add_argument('--disable-dev-shm-usage')
+    opts.add_argument('--disable-gpu')
+    opts.add_argument('--window-size=1920,1080')
+    opts.add_argument('--disable-blink-features=AutomationControlled')
+    opts.add_experimental_option('excludeSwitches', ['enable-automation'])
+    opts.add_experimental_option('useAutomationExtension', False)
+
+    # Try to find chrome
+    chrome_paths = [
+        r'C:\Program Files\Google\Chrome\Application\chrome.exe',
+        r'C:\Program Files (x86)\Google\Chrome\Application\chrome.exe',
+    ]
+    for p in chrome_paths:
+        if os.path.exists(p):
+            opts.binary_location = p
+            break
+
+    _driver = webdriver.Chrome(options=opts)
+    # Remove webdriver detection
+    _driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {
+        'source': 'Object.defineProperty(navigator, "webdriver", {get: () => undefined})'
+    })
+    log("driver: started", {})
+    return _driver
+
+def quit_driver():
+    global _driver
+    if _driver is not None:
         try:
-            csrftoken = s.cookies.get("csrftoken")
-            if csrftoken:
-                log("auto-extracted csrftoken", {"csrftoken": csrftoken[:10] + "..."})
+            _driver.quit()
         except:
             pass
+        _driver = None
+
+# ──────────────────────────────────────────────
+# Inject session into browser cookies
+# ──────────────────────────────────────────────
+def inject_session(sessionid, csrftoken=""):
+    driver = get_driver()
     ds_id = sessionid.split(":")[0] if ":" in sessionid else ""
-    s.cookies.set("sessionid", sessionid, domain=".instagram.com")
-    if csrftoken:
-        s.cookies.set("csrftoken", csrftoken, domain=".instagram.com")
-    if ds_id:
-        s.cookies.set("ds_user_id", ds_id, domain=".instagram.com")
-    s.headers.update({
-        "User-Agent": IG_UA,
-        "X-IG-App-ID": IG_APP_ID,
-        "X-Requested-With": "XMLHttpRequest",
-        "Referer": "https://www.instagram.com/",
+
+    # First visit instagram.com to establish domain cookies
+    driver.get('https://www.instagram.com/')
+    time.sleep(1)
+
+    # Add session cookies
+    driver.add_cookie({
+        'name': 'sessionid',
+        'value': sessionid,
+        'domain': '.instagram.com',
+        'path': '/',
     })
-    return s, csrftoken
+    if csrftoken:
+        driver.add_cookie({
+            'name': 'csrftoken',
+            'value': csrftoken,
+            'domain': '.instagram.com',
+            'path': '/',
+        })
+    if ds_id:
+        driver.add_cookie({
+            'name': 'ds_user_id',
+            'value': ds_id,
+            'domain': '.instagram.com',
+            'path': '/',
+        })
 
-def extract_tokens(html):
-    tokens = {}
-    for pat in [
-        r'"DTSGInitialData",\[\],\{"token":"([^"]+)"',
-        r'"fb_dtsg":"([^"]+)"',
-        r'name="fb_dtsg"\s+value="([^"]+)"',
-    ]:
-        m = re.search(pat, html)
-        if m:
-            tokens["fb_dtsg"] = m.group(1)
-            break
+    # Reload to apply cookies
+    driver.get('https://www.instagram.com/')
+    time.sleep(2)
+    log("inject_session: done", {"ds_id": ds_id, "csrftoken": csrftoken[:10] + "..." if csrftoken else "(none)"})
+    return driver
 
-    if "fb_dtsg" in tokens:
-        h = 0
-        for c in tokens["fb_dtsg"]:
-            h = ((h << 5) - h + ord(c)) & 0xFFFFFFFF
-        tokens["jazoest"] = str(h)
+# ──────────────────────────────────────────────
+# Extract tokens from the browser's live page
+# ──────────────────────────────────────────────
+def extract_tokens_from_browser(driver):
+    # Run JS in the browser to extract tokens
+    script = """
+    const html = document.documentElement.outerHTML;
 
-    for pat in [r'"LSD",\[\],\{"token":"([^"]+)"', r'name="lsd"\s+value="([^"]+)"', r'"lsd":"([^"]+)"']:
-        m = re.search(pat, html)
-        if m:
-            tokens["lsd"] = m.group(1)
-            break
+    // fb_dtsg
+    let fbDtsg = null;
+    const dtsgMatch = html.match(/"DTSGInitialData"[^}]*"token":"([^"]+)"/);
+    if (dtsgMatch) fbDtsg = dtsgMatch[1];
+    if (!fbDtsg) {
+        const m = html.match(/"fb_dtsg":"([^"]+)"/);
+        if (m) fbDtsg = m[1];
+    }
 
-    m = re.search(r'"client_revision":(\d+)', html)
-    tokens["rev"] = m.group(1) if m else "1055532492"
+    // lsd
+    let lsd = null;
+    const lsdMatch = html.match(/"LSD"[^}]*"token":"([^"]+)"/);
+    if (lsdMatch) lsd = lsdMatch[1];
+    if (!lsd) {
+        const m = html.match(/"lsd":"([^"]+)"/);
+        if (m) lsd = m[1];
+    }
 
-    m = re.search(r'"app_id":"(\d+)"', html)
-    if m:
-        tokens["app_id"] = m.group(1)
+    // csrftoken from cookie
+    const csrfCookie = document.cookie.match(/csrftoken=([^;]+)/);
+    const csrftoken = csrfCookie ? csrfCookie[1] : null;
 
-    m = re.search(r'"hsi":"(\d+)"', html)
-    if m:
-        tokens["hsi"] = m.group(1)
-    else:
-        m = re.search(r'"haste_session":"([^"]+)"', html)
-        if m:
-            tokens["hsi"] = m.group(1)
+    // client revision
+    const revMatch = html.match(/"client_revision":(\d+)/);
+    const rev = revMatch ? revMatch[1] : "1055532492";
 
-    return tokens
+    // viewer_id
+    const viewerMatch = html.match(/"viewer_id":"(\\d+)"/);
+    const viewerId = viewerMatch ? viewerMatch[1] : null;
 
-def extract_own_userid(html):
-    for pat in [
-        r'"profilePage_(\d+)"',
-        r'"currentUser".*?"pk"?\s*:\s*"?(\d+)"?',
-        r'"user_id":"(\d+)"',
-        r'"ds_user_id":"(\d+)"',
-        r'"pk":"(\d+)"',
-    ]:
-        m = re.search(pat, html)
-        if m:
-            return m.group(1)
-    return None
+    // jazoest from fb_dtsg
+    let jazoest = null;
+    if (fbDtsg) {
+        let h = 0;
+        for (let i = 0; i < fbDtsg.length; i++) {
+            h = ((h << 5) - h + fbDtsg.charCodeAt(i)) | 0;
+        }
+        jazoest = Math.abs(h).toString();
+    }
 
-def extract_profile_userid(html, own_userid):
-    all_ids = re.findall(r'"profilePage_(\d+)"', html)
-    for uid in all_ids:
-        if uid != own_userid:
-            return uid
-    for pat in [
-        r'"xig_user_by_username".*?"pk"?\s*:\s*"?(\d+)"?',
-        r'"PolarisProfilePageContentQuery".*?"pk"?\s*:\s*"?(\d+)"?',
-    ]:
-        m = re.search(pat, html, re.DOTALL)
-        if m and m.group(1) != own_userid:
-            return m.group(1)
-    return None
+    return { fb_dtsg: fbDtsg, lsd, csrftoken, rev, jazoest, viewer_id: viewerId };
+    """
+    result = driver.execute_script(script)
+    log("extract_tokens_from_browser", {k: (v[:15] + "..." if isinstance(v, str) and len(v) > 15 else v) for k, v in result.items()})
+    return result
 
-def resolve_userid_strict(sessionid, csrftoken, username, own_userid):
-    s, csrftoken = make_session(sessionid, csrftoken)
-    r = s.get(f"https://www.instagram.com/{username}/", headers={"Accept": "text/html"}, timeout=15)
-    if r.status_code != 200:
-        return None, f"Profile page returned HTTP {r.status_code}"
-    if "not-logged-in" in r.text[:5000]:
-        return None, "Session rejected — got login page"
-    uid = extract_profile_userid(r.text, own_userid)
-    if uid and uid != own_userid:
-        log("resolve: found userId", {"username": username, "userId": uid})
-        return uid, None
-    return None, "Could not extract userId from profile page HTML"
+# ──────────────────────────────────────────────
+# Run fetch() from the browser context (same-origin)
+# ──────────────────────────────────────────────
+def browser_fetch(driver, url, options_json):
+    """
+    Execute a fetch() call from within the browser context.
+    This is same-origin, so CORS/cookies/CSRF are all handled by the browser.
+    """
+    script = f"""
+    const done = arguments[arguments.length - 1];
+    const url = {json.dumps(url)};
+    const options = {options_json};
 
-def find_thread_fbid(sessionid, csrftoken, recipient_pk):
-    s, csrftoken = make_session(sessionid, csrftoken)
+    fetch(url, options)
+      .then(r => r.text().then(text => {{
+        done({{ status: r.status, text: text }});
+      }}))
+      .catch(err => {{
+        done({{ status: 0, text: err.toString() }});
+      }});
+    """
+    driver.set_script_timeout(30)
+    result = driver.execute_async_script(script)
+    return result
+
+# ──────────────────────────────────────────────
+# Validate session
+# ──────────────────────────────────────────────
+def validate_session(sessionid, csrftoken):
     try:
-        r = s.get(
-            "https://i.instagram.com/api/v1/direct_v2/inbox/?visual_message_return_type=unseen&thread_message_limit=1&persistentBadging=true&limit=50",
-            headers={"X-IG-App-ID": IG_APP_ID, "X-CSRFToken": csrftoken, "Accept": "application/json"},
-            timeout=15,
-        )
-        if r.status_code == 200:
-            data = r.json()
-            threads = data.get("inbox", {}).get("threads", [])
-            target_pk = str(recipient_pk)
-
-            for thread in threads:
-                users = thread.get("users", [])
-                for u in users:
-                    u_pk = str(u.get("pk", ""))
-                    if u_pk == target_pk:
-                        thread_fbid = thread.get("thread_fbid") or thread.get("thread_id", "")
-                        interop_fbid = None
-                        for u2 in users:
-                            if str(u2.get("pk", "")) == target_pk:
-                                interop_fbid = str(u2.get("interop_messaging_user_fbid", "")) or None
-                                break
-                        log("find_thread_fbid: found", {
-                            "thread_fbid": thread_fbid,
-                            "interop_fbid": interop_fbid,
-                            "target_pk": target_pk,
-                        })
-                        return thread_fbid, interop_fbid, None
-
-            log("find_thread_fbid: no thread found", {"totalThreads": len(threads), "targetPk": target_pk})
-            return None, None, f"No existing DM thread found for userId {recipient_pk}"
-        else:
-            return None, None, f"Inbox API returned HTTP {r.status_code}"
+        driver = inject_session(sessionid, csrftoken)
+        # Check if we're logged in
+        page_source = driver.page_source
+        if 'not-logged-in' in page_source[:5000]:
+            return {"valid": False, "reason": "Session rejected — Instagram returned login page."}
+        tokens = extract_tokens_from_browser(driver)
+        return {
+            "valid": True,
+            "username": tokens.get("username", "unknown"),
+            "userId": None,
+            "has_fb_dtsg": bool(tokens.get("fb_dtsg")),
+            "csrftoken": tokens.get("csrftoken", "")[:10] + "..." if tokens.get("csrftoken") else "(none)",
+        }
     except Exception as e:
+        return {"valid": False, "reason": f"Browser error: {str(e)}"}
+    finally:
+        quit_driver()
+
+# ──────────────────────────────────────────────
+# Resolve username -> userId
+# ──────────────────────────────────────────────
+def resolve_userid(sessionid, csrftoken, username):
+    try:
+        driver = inject_session(sessionid, csrftoken)
+        # Navigate to the user's profile page
+        driver.get(f'https://www.instagram.com/{username}/')
+        time.sleep(2)
+        page_source = driver.page_source
+        if 'not-logged-in' in page_source[:5000]:
+            return {"userId": None, "reason": "Session rejected during profile lookup"}
+        # Extract userId from profilePage_<id> in the SSR data
+        match = re.search(r'"profilePage_(\d+)"', page_source)
+        if match:
+            uid = match.group(1)
+            log(f"resolve: found userId for @{username}", {"userId": uid})
+            return {"userId": uid, "reason": None, "ownUserId": None}
+        # Fallback: try other patterns
+        for pat in [r'"user_id":"(\d+)"', r'"pk":"(\d+)"']:
+            m = re.search(pat, page_source)
+            if m:
+                return {"userId": m.group(1), "reason": None, "ownUserId": None}
+        return {"userId": None, "reason": "Could not extract userId from profile page"}
+    except Exception as e:
+        return {"userId": None, "reason": f"Browser error: {str(e)}"}
+    finally:
+        quit_driver()
+
+# ──────────────────────────────────────────────
+# Find thread_fbid from inbox
+# ──────────────────────────────────────────────
+def find_thread_fbid(driver, recipient_pk, csrftoken):
+    """Use the browser's fetch() to query the inbox API (same-origin, cookies auto-sent)."""
+    try:
+        url = "https://i.instagram.com/api/v1/direct_v2/inbox/?visual_message_return_type=unseen&thread_message_limit=1&persistentBadging=true&limit=50"
+        result = browser_fetch(driver, url, json.dumps({
+            "method": "GET",
+            "headers": {
+                "X-IG-App-ID": IG_APP_ID,
+                "Accept": "application/json",
+            }
+        }))
+        if result["status"] != 200:
+            log("find_thread_fbid: inbox fetch failed", {"status": result["status"], "body": result["text"][:200]})
+            return None, None, f"Inbox API returned HTTP {result['status']}"
+
+        data = json.loads(result["text"])
+        threads = data.get("inbox", {}).get("threads", [])
+        target_pk = str(recipient_pk)
+
+        for thread in threads:
+            users = thread.get("users", [])
+            for u in users:
+                u_pk = str(u.get("pk", ""))
+                if u_pk == target_pk:
+                    thread_fbid = thread.get("thread_fbid") or thread.get("thread_id", "")
+                    interop_fbid = None
+                    for u2 in users:
+                        if str(u2.get("pk", "")) == target_pk:
+                            interop_fbid = str(u2.get("interop_messaging_user_fbid", "")) or None
+                            break
+                    log("find_thread_fbid: found", {
+                        "thread_fbid": thread_fbid,
+                        "interop_fbid": interop_fbid,
+                        "target_pk": target_pk,
+                    })
+                    return thread_fbid, interop_fbid, None
+
+        log("find_thread_fbid: no thread found", {"totalThreads": len(threads), "targetPk": target_pk})
+        return None, None, f"No existing DM thread found for userId {recipient_pk}"
+    except Exception as e:
+        log("find_thread_fbid: exception", {"error": str(e)})
         return None, None, f"Error finding thread: {str(e)}"
 
-def send_dm_graphql(sessionid, csrftoken, thread_fbid, recipient_igids, text, tokens, own_userid):
-    device_id = str(uuid.uuid4())
+# ──────────────────────────────────────────────
+# Send DM via GraphQL mutation (from browser context)
+# ──────────────────────────────────────────────
+def send_dm_via_browser(driver, thread_fbid, recipient_igids, text, tokens):
+    """
+    Send DM using fetch() from within the browser context.
+    Same-origin → cookies, CSRF, TLS all handled by the browser natively.
+    """
     offline_threading_id = generate_offline_threading_id()
-    ds_user_id = sessionid.split(":")[0] if ":" in sessionid else own_userid or ""
+    ds_user_id = str(tokens.get("viewer_id", ""))
 
+    # Build the form data exactly like the browser would
     variables = {
         "commands": None,
         "forwarded_from_thread_id": None,
@@ -191,7 +339,8 @@ def send_dm_graphql(sessionid, csrftoken, thread_fbid, recipient_igids, text, to
         "text": {"sensitive_string_value": text},
     }
 
-    form_data = {
+    # Build URLSearchParams (what the browser sends for form-encoded)
+    params = {
         "doc_id": IGDirectTextSendMutation_DOC_ID,
         "fb_api_caller_class": "RelayModern",
         "fb_api_req_friendly_name": "IGDirectTextSendMutation",
@@ -200,40 +349,22 @@ def send_dm_graphql(sessionid, csrftoken, thread_fbid, recipient_igids, text, to
         "fb_dtsg": tokens.get("fb_dtsg", ""),
         "jazoest": tokens.get("jazoest", ""),
         "lsd": tokens.get("lsd", ""),
-        "__user": str(ds_user_id),
+        "__user": ds_user_id,
         "__a": "1",
         "__req": str(next_req()),
         "__rev": tokens.get("rev", "1055532492"),
-        "hsi": tokens.get("hsi", ""),
         "dpr": "1",
-        "hs_key": tokens.get("hsi", ""),
         "__comet_req": "7",
         "__spin_r": tokens.get("rev", "1055532492"),
         "__spin_b": "trunk",
         "__spin_t": "",
     }
+    params = {k: v for k, v in params.items() if v is not None and v != ""}
 
-    form_data = {k: v for k, v in form_data.items() if v is not None and v != ""}
+    # Build form body as URLSearchParams (browser-style)
+    form_body = "&".join(f"{k}={v}" for k, v in params.items())
 
-    headers = {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "User-Agent": IG_UA,
-        "X-IG-App-ID": IG_APP_ID,
-        "X-IG-D": "www",
-        "X-CSRFToken": csrftoken,
-        "X-Requested-With": "XMLHttpRequest",
-        "X-ASBD-ID": "129477",
-        "X-FB-Friendly-Name": "IGDirectTextSendMutation",
-        "Origin": "https://www.instagram.com",
-        "Referer": f"https://www.instagram.com/direct/t/{thread_fbid}/" if thread_fbid else "https://www.instagram.com/",
-        "Accept": "application/json, text/plain, */*",
-    }
-    if tokens.get("fb_dtsg"):
-        headers["X-FB-DTSG"] = tokens["fb_dtsg"]
-    if tokens.get("lsd"):
-        headers["X-FB-LSD"] = tokens["lsd"]
-
-    log("send_dm_graphql: sending", {
+    log("send_dm_via_browser: sending", {
         "doc_id": IGDirectTextSendMutation_DOC_ID,
         "thread_fbid": thread_fbid,
         "recipient_igids": recipient_igids,
@@ -241,53 +372,49 @@ def send_dm_graphql(sessionid, csrftoken, thread_fbid, recipient_igids, text, to
         "textLength": len(text),
     })
 
-    # Hit homepage first for device cookies, then set user cookies
-    s = requests.Session(impersonate="chrome120")
-    s.get("https://www.instagram.com/", headers={"Accept": "text/html"}, timeout=15)
-    s.cookies.set("sessionid", sessionid, domain=".instagram.com")
-    if csrftoken:
-        s.cookies.set("csrftoken", csrftoken, domain=".instagram.com")
-    s.cookies.set("ds_user_id", ds_user_id, domain=".instagram.com")
-    s.cookies.set("ig_did", device_id, domain=".instagram.com")
+    # Use the browser's fetch() — same-origin, all auth handled natively
+    result = browser_fetch(driver, "https://www.instagram.com/api/graphql/", json.dumps({
+        "method": "POST",
+        "headers": {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "X-IG-App-ID": IG_APP_ID,
+            "X-IG-D": "www",
+            "X-CSRFToken": tokens.get("csrftoken", ""),
+            "X-Requested-With": "XMLHttpRequest",
+            "X-ASBD-ID": "129477",
+            "X-FB-Friendly-Name": "IGDirectTextSendMutation",
+            "Accept": "application/json",
+        },
+        "body": form_body,
+    }))
 
-    r = s.post(
-        "https://www.instagram.com/api/graphql/",
-        data=form_data,
-        headers=headers,
-        timeout=20,
-    )
+    status = result["status"]
+    resp_text = result["text"]
 
-    log("send_dm_graphql: response", {
-        "status": r.status_code,
-        "bodyLength": len(r.text),
-        "bodyPreview": r.text[:800],
-    })
-
-    # Parse response
-    resp_text = r.text.strip()
+    # Strip "for (;;);" prefix
     if resp_text.startswith("for (;;);"):
         resp_text = resp_text[9:]
 
-    is_json = resp_text.startswith("{") or resp_text.startswith("[")
-    if is_json:
-        try:
-            body = json.loads(resp_text)
-        except:
-            body = {"raw": r.text[:500]}
-    else:
-        body = {"raw": r.text[:500]}
+    log("send_dm_via_browser: response", {
+        "status": status,
+        "bodyLength": len(resp_text),
+        "bodyPreview": resp_text[:600],
+    })
 
-    ok = r.status_code >= 200 and r.status_code < 300
+    # Parse response
+    try:
+        body = json.loads(resp_text)
+    except:
+        body = {"raw": resp_text[:500]}
+
+    ok = status >= 200 and status < 300
     graphql_errors = None
 
     if isinstance(body, dict):
-        if body.get("errors"):
-            graphql_errors = body["errors"]
-            ok = False
         if body.get("error"):
             ok = False
             graphql_errors = [{"message": body.get("errorSummary", ""), "description": body.get("errorDescription", "")}]
-            log("send_dm_graphql: GraphQL error", {
+            log("send_dm_via_browser: error", {
                 "error": body.get("error"),
                 "summary": body.get("errorSummary"),
                 "desc": body.get("errorDescription"),
@@ -298,54 +425,30 @@ def send_dm_graphql(sessionid, csrftoken, thread_fbid, recipient_igids, text, to
             msg_data = body["data"][response_key]
             if msg_data:
                 ok = True
-                log("send_dm_graphql: message sent!", {
+                log("send_dm_via_browser: message sent!", {
                     "message_id": msg_data.get("message_id"),
                     "timestamp_ms": msg_data.get("timestamp_ms"),
                 })
 
-    return ok, r.status_code, body, graphql_errors, offline_threading_id
+    thread_id = thread_fbid
+    return ok, status, body, graphql_errors, offline_threading_id, thread_id
 
+# ──────────────────────────────────────────────
+# Commands
+# ──────────────────────────────────────────────
 
 def cmd_validate(payload):
     sessionid = payload["sessionid"]
     csrftoken = payload.get("csrftoken", "")
-    s, csrftoken = make_session(sessionid, csrftoken)
-    r = s.get("https://www.instagram.com/", headers={"Accept": "text/html"}, timeout=15)
-    if r.status_code != 200:
-        return {"valid": False, "reason": f"Homepage returned HTTP {r.status_code}"}
-    if "not-logged-in" in r.text[:5000]:
-        ds_id = sessionid.split(":")[0] if ":" in sessionid else ""
-        if ds_id:
-            r2 = s.get(f"https://www.instagram.com/{ds_id}/", headers={"Accept": "text/html"}, timeout=15)
-            if "not-logged-in" in r2.text[:5000]:
-                return {"valid": False, "reason": "Session rejected."}
-        else:
-            return {"valid": False, "reason": "Cannot extract ds_user_id."}
-    tokens = extract_tokens(r.text)
-    username = None
-    m = re.search(r'"username":"([^"]+)"', r.text)
-    if m:
-        username = m.group(1)
-    own_id = extract_own_userid(r.text) or (sessionid.split(":")[0] if ":" in sessionid else None)
-    return {
-        "valid": True,
-        "username": username,
-        "userId": own_id,
-        "has_fb_dtsg": bool(tokens.get("fb_dtsg")),
-        "csrftoken": csrftoken[:10] + "..." if csrftoken else "(none)",
-    }
+    result = validate_session(sessionid, csrftoken)
+    return result
 
 def cmd_resolve(payload):
     sessionid = payload["sessionid"]
     csrftoken = payload.get("csrftoken", "")
     username = payload["username"]
-    s, csrftoken = make_session(sessionid, csrftoken)
-    r = s.get("https://www.instagram.com/", headers={"Accept": "text/html"}, timeout=15)
-    own_id = extract_own_userid(r.text) or (sessionid.split(":")[0] if ":" in sessionid else None)
-    if not own_id:
-        return {"userId": None, "reason": "Could not determine own userId"}
-    uid, reason = resolve_userid_strict(sessionid, csrftoken, username, own_id)
-    return {"userId": uid, "reason": reason, "ownUserId": own_id}
+    result = resolve_userid(sessionid, csrftoken, username)
+    return result
 
 def cmd_send_dm(payload):
     sessionid = payload["sessionid"]
@@ -353,33 +456,45 @@ def cmd_send_dm(payload):
     recipient = payload["recipient"]
     text = payload["text"]
 
-    s, csrftoken = make_session(sessionid, csrftoken)
-    r = s.get("https://www.instagram.com/", headers={"Accept": "text/html"}, timeout=15)
-    own_id = extract_own_userid(r.text) or (sessionid.split(":")[0] if ":" in sessionid else None)
-    tokens = extract_tokens(r.text)
+    try:
+        driver = inject_session(sessionid, csrftoken)
+        tokens = extract_tokens_from_browser(driver)
 
-    uid, reason = resolve_userid_strict(sessionid, csrftoken, recipient, own_id)
-    if not uid:
-        return {"ok": False, "status": 0, "reason": reason}
+        # Resolve recipient userId from profile page
+        driver.get(f'https://www.instagram.com/{recipient}/')
+        time.sleep(2)
+        page_source = driver.page_source
+        match = re.search(r'"profilePage_(\d+)"', page_source)
+        if not match:
+            return {"ok": False, "status": 0, "reason": "Could not resolve recipient userId"}
+        uid = match.group(1)
+        log("send_dm: resolved recipient", {"recipient": recipient, "userId": uid})
 
-    thread_fbid, interop_fbid, thread_reason = find_thread_fbid(sessionid, csrftoken, uid)
+        # Find thread_fbid
+        thread_fbid, interop_fbid, thread_reason = find_thread_fbid(driver, uid, csrftoken)
 
-    if thread_fbid:
-        recipient_igids = [interop_fbid] if interop_fbid else None
-        ok, status, body, errors, otid = send_dm_graphql(sessionid, csrftoken, thread_fbid, recipient_igids, text, tokens, own_id)
-    else:
-        recipient_igids = [str(uid)]
-        ok, status, body, errors, otid = send_dm_graphql(sessionid, csrftoken, None, recipient_igids, text, tokens, own_id)
+        if thread_fbid:
+            recipient_igids = [interop_fbid] if interop_fbid else None
+        else:
+            recipient_igids = [str(uid)]
 
-    return {
-        "ok": ok,
-        "status": status,
-        "body": body,
-        "threadId": thread_fbid,
-        "userId": uid,
-        "ownUserId": own_id,
-        "errors": errors,
-    }
+        # Send DM via browser fetch
+        ok, status, body, errors, otid, tid = send_dm_via_browser(driver, thread_fbid, recipient_igids, text, tokens)
+
+        return {
+            "ok": ok,
+            "status": status,
+            "body": body,
+            "threadId": tid,
+            "userId": uid,
+            "errors": errors,
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        return {"ok": False, "status": 0, "reason": str(e)}
+    finally:
+        quit_driver()
 
 def cmd_debug(payload):
     sessionid = payload["sessionid"]
@@ -387,44 +502,52 @@ def cmd_debug(payload):
     recipient = payload["recipient"]
     text = payload["text"]
 
-    s, csrftoken = make_session(sessionid, csrftoken)
-    r = s.get("https://www.instagram.com/", headers={"Accept": "text/html"}, timeout=15)
-    own_id = extract_own_userid(r.text) or (sessionid.split(":")[0] if ":" in sessionid else None)
-    tokens = extract_tokens(r.text)
+    try:
+        driver = inject_session(sessionid, csrftoken)
+        tokens = extract_tokens_from_browser(driver)
 
-    uid, resolve_reason = resolve_userid_strict(sessionid, csrftoken, recipient, own_id)
-    if not uid:
+        # Resolve recipient
+        driver.get(f'https://www.instagram.com/{recipient}/')
+        time.sleep(2)
+        page_source = driver.page_source
+        match = re.search(r'"profilePage_(\d+)"', page_source)
+        if not match:
+            return {"ok": False, "step": "resolve", "reason": "Could not resolve recipient userId"}
+        uid = match.group(1)
+        log("debug: resolved recipient", {"recipient": recipient, "userId": uid})
+
+        # Find thread
+        thread_fbid, interop_fbid, thread_reason = find_thread_fbid(driver, uid, csrftoken)
+        log("debug: thread lookup", {"thread_fbid": thread_fbid, "interop_fbid": interop_fbid, "reason": thread_reason})
+
+        recipient_igids = [interop_fbid] if interop_fbid else [str(uid)]
+
+        # Send
+        ok, status, body, errors, otid, tid = send_dm_via_browser(driver, thread_fbid, recipient_igids, text, tokens)
+
         return {
-            "ok": False,
-            "step": "resolve",
-            "reason": resolve_reason,
-            "ownUserId": own_id,
-            "tokens": {k: v[:20] + "..." for k, v in tokens.items()},
+            "ok": ok,
+            "step": "send_dm",
+            "statusCode": status,
+            "responseBody": json.dumps(body)[:500] if isinstance(body, dict) else str(body)[:500],
+            "responseBodyRaw": json.dumps(body)[:2000] if isinstance(body, dict) else str(body)[:2000],
+            "userId": uid,
+            "threadId": tid,
+            "offlineThreadingId": otid,
+            "tokens": {k: (v[:20] + "..." if isinstance(v, str) and len(v) > 20 else v) for k, v in tokens.items()},
+            "graphqlErrors": errors,
+            "recipientIgids": recipient_igids,
         }
+    except Exception as e:
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        return {"ok": False, "step": "error", "reason": str(e)}
+    finally:
+        quit_driver()
 
-    thread_fbid, interop_fbid, thread_reason = find_thread_fbid(sessionid, csrftoken, uid)
-    log("debug: thread lookup", {"thread_fbid": thread_fbid, "interop_fbid": interop_fbid, "reason": thread_reason})
-
-    recipient_igids = [interop_fbid] if interop_fbid else [str(uid)]
-    ok, status, body, errors, otid = send_dm_graphql(sessionid, csrftoken, thread_fbid, recipient_igids, text, tokens, own_id)
-
-    return {
-        "ok": ok,
-        "step": "send_dm",
-        "statusCode": status,
-        "contentType": "application/json",
-        "responseBody": json.dumps(body)[:500] if isinstance(body, dict) else str(body)[:500],
-        "responseBodyRaw": json.dumps(body)[:2000] if isinstance(body, dict) else str(body)[:2000],
-        "userId": uid,
-        "ownUserId": own_id,
-        "threadId": thread_fbid,
-        "offlineThreadingId": otid,
-        "tokens": {k: (v[:20] + "..." if isinstance(v, str) and len(v) > 20 else v) for k, v in tokens.items()},
-        "csrftoken": csrftoken[:10] + "..." if csrftoken else "(none)",
-        "graphqlErrors": errors,
-        "recipientIgids": recipient_igids,
-    }
-
+# ──────────────────────────────────────────────
+# Main
+# ──────────────────────────────────────────────
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print(json.dumps({"ok": False, "error": "Usage: ig_worker.py <command> '<json>'"}))
@@ -454,8 +577,6 @@ if __name__ == "__main__":
         else:
             result = {"ok": False, "error": f"Unknown command: {command}"}
     except Exception as e:
-        import traceback
-        traceback.print_exc(file=sys.stderr)
         result = {"ok": False, "error": str(e)}
 
     print(json.dumps(result, ensure_ascii=False))
