@@ -133,10 +133,6 @@ def resolve_userid_strict(sessionid, csrftoken, username, own_userid):
     return None, "Could not extract userId from profile page HTML"
 
 def find_thread_fbid(sessionid, csrftoken, recipient_pk):
-    """
-    Find the thread_fbid for an existing DM conversation with a user.
-    Returns (thread_fbid, interop_fbid, reason).
-    """
     s, csrftoken = make_session(sessionid, csrftoken)
     try:
         r = s.get(
@@ -155,7 +151,6 @@ def find_thread_fbid(sessionid, csrftoken, recipient_pk):
                     u_pk = str(u.get("pk", ""))
                     if u_pk == target_pk:
                         thread_fbid = thread.get("thread_fbid") or thread.get("thread_id", "")
-                        thread_key = thread.get("thread_id", "")
                         interop_fbid = None
                         for u2 in users:
                             if str(u2.get("pk", "")) == target_pk:
@@ -163,7 +158,6 @@ def find_thread_fbid(sessionid, csrftoken, recipient_pk):
                                 break
                         log("find_thread_fbid: found", {
                             "thread_fbid": thread_fbid,
-                            "thread_key": thread_key,
                             "interop_fbid": interop_fbid,
                             "target_pk": target_pk,
                         })
@@ -172,23 +166,15 @@ def find_thread_fbid(sessionid, csrftoken, recipient_pk):
             log("find_thread_fbid: no thread found", {"totalThreads": len(threads), "targetPk": target_pk})
             return None, None, f"No existing DM thread found for userId {recipient_pk}"
         else:
-            log("find_thread_fbid: inbox API failed", {"status": r.status_code})
             return None, None, f"Inbox API returned HTTP {r.status_code}"
     except Exception as e:
-        log("find_thread_fbid: exception", {"error": str(e)})
         return None, None, f"Error finding thread: {str(e)}"
 
 def send_dm_graphql(sessionid, csrftoken, thread_fbid, recipient_igids, text, tokens, own_userid):
-    """
-    Send a DM via the ACTUAL GraphQL mutation Instagram uses:
-    IGDirectTextSendMutation (doc_id 28737274835943013)
-    POST /api/graphql/
-    """
     device_id = str(uuid.uuid4())
     offline_threading_id = generate_offline_threading_id()
     ds_user_id = sessionid.split(":")[0] if ":" in sessionid else own_userid or ""
 
-    # Build variables
     variables = {
         "commands": None,
         "forwarded_from_thread_id": None,
@@ -205,7 +191,6 @@ def send_dm_graphql(sessionid, csrftoken, thread_fbid, recipient_igids, text, to
         "text": {"sensitive_string_value": text},
     }
 
-    # Build form data for POST /api/graphql/
     form_data = {
         "doc_id": IGDirectTextSendMutation_DOC_ID,
         "fb_api_caller_class": "RelayModern",
@@ -228,19 +213,10 @@ def send_dm_graphql(sessionid, csrftoken, thread_fbid, recipient_igids, text, to
         "__spin_t": "",
     }
 
-    # Remove None/empty values
     form_data = {k: v for k, v in form_data.items() if v is not None and v != ""}
-
-    cookie = "; ".join([
-        f"sessionid={sessionid}",
-        f"csrftoken={csrftoken}",
-        f"ds_user_id={ds_user_id}",
-        f"ig_did={device_id}",
-    ])
 
     headers = {
         "Content-Type": "application/x-www-form-urlencoded",
-        "Cookie": cookie,
         "User-Agent": IG_UA,
         "X-IG-App-ID": IG_APP_ID,
         "X-IG-D": "www",
@@ -259,16 +235,15 @@ def send_dm_graphql(sessionid, csrftoken, thread_fbid, recipient_igids, text, to
 
     log("send_dm_graphql: sending", {
         "doc_id": IGDirectTextSendMutation_DOC_ID,
-        "endpoint": "POST /api/graphql/",
         "thread_fbid": thread_fbid,
         "recipient_igids": recipient_igids,
         "offline_threading_id": offline_threading_id,
         "textLength": len(text),
-        "formFields": list(form_data.keys()),
-        "variables": variables,
     })
 
+    # Hit homepage first for device cookies, then set user cookies
     s = requests.Session(impersonate="chrome120")
+    s.get("https://www.instagram.com/", headers={"Accept": "text/html"}, timeout=15)
     s.cookies.set("sessionid", sessionid, domain=".instagram.com")
     if csrftoken:
         s.cookies.set("csrftoken", csrftoken, domain=".instagram.com")
@@ -284,50 +259,40 @@ def send_dm_graphql(sessionid, csrftoken, thread_fbid, recipient_igids, text, to
 
     log("send_dm_graphql: response", {
         "status": r.status_code,
-        "contentType": r.headers.get("content-type", ""),
         "bodyLength": len(r.text),
         "bodyPreview": r.text[:800],
     })
 
-    # Parse response — handle both JSON and "for (;;);{...}" format
-    text = r.text.strip()
-    # Remove "for (;;);" prefix if present
-    if text.startswith("for (;;);"):
-        text = text[9:]
+    # Parse response
+    resp_text = r.text.strip()
+    if resp_text.startswith("for (;;);"):
+        resp_text = resp_text[9:]
 
-    is_json = text.startswith("{") or text.startswith("[")
+    is_json = resp_text.startswith("{") or resp_text.startswith("[")
     if is_json:
         try:
-            body = json.loads(text)
+            body = json.loads(resp_text)
         except:
             body = {"raw": r.text[:500]}
     else:
         body = {"raw": r.text[:500]}
-        m = re.search(r"<title[^>]*>([\s\S]*?)</title>", r.text, re.IGNORECASE)
-        if m:
-            body["htmlTitle"] = m.group(1).strip()
 
     ok = r.status_code >= 200 and r.status_code < 300
-
-    # Check GraphQL errors
     graphql_errors = None
+
     if isinstance(body, dict):
         if body.get("errors"):
             graphql_errors = body["errors"]
             ok = False
-        # Check for error code in payload
         if body.get("error"):
             ok = False
-            error_summary = body.get("errorSummary", "")
-            error_desc = body.get("errorDescription", "")
-            graphql_errors = [{"message": error_summary, "description": error_desc}]
+            graphql_errors = [{"message": body.get("errorSummary", ""), "description": body.get("errorDescription", "")}]
             log("send_dm_graphql: GraphQL error", {
                 "error": body.get("error"),
-                "errorSummary": error_summary,
-                "errorDescription": error_desc,
+                "summary": body.get("errorSummary"),
+                "desc": body.get("errorDescription"),
             })
 
-        # Check for the mutation response
         response_key = "xig_direct_text_send_with_slide_messaging_response"
         if response_key in body.get("data", {}):
             msg_data = body["data"][response_key]
@@ -341,10 +306,6 @@ def send_dm_graphql(sessionid, csrftoken, thread_fbid, recipient_igids, text, to
     return ok, r.status_code, body, graphql_errors, offline_threading_id
 
 
-# ──────────────────────────────────────────────
-# Commands
-# ──────────────────────────────────────────────
-
 def cmd_validate(payload):
     sessionid = payload["sessionid"]
     csrftoken = payload.get("csrftoken", "")
@@ -357,9 +318,9 @@ def cmd_validate(payload):
         if ds_id:
             r2 = s.get(f"https://www.instagram.com/{ds_id}/", headers={"Accept": "text/html"}, timeout=15)
             if "not-logged-in" in r2.text[:5000]:
-                return {"valid": False, "reason": "Session rejected — Instagram returned login page."}
+                return {"valid": False, "reason": "Session rejected."}
         else:
-            return {"valid": False, "reason": "Cannot extract ds_user_id from sessionid."}
+            return {"valid": False, "reason": "Cannot extract ds_user_id."}
     tokens = extract_tokens(r.text)
     username = None
     m = re.search(r'"username":"([^"]+)"', r.text)
@@ -397,8 +358,6 @@ def cmd_send_dm(payload):
     own_id = extract_own_userid(r.text) or (sessionid.split(":")[0] if ":" in sessionid else None)
     tokens = extract_tokens(r.text)
 
-    log("send_dm: starting", {"ownId": own_id, "csrftoken": csrftoken[:10] + "..." if csrftoken else "(none)"})
-
     uid, reason = resolve_userid_strict(sessionid, csrftoken, recipient, own_id)
     if not uid:
         return {"ok": False, "status": 0, "reason": reason}
@@ -406,11 +365,9 @@ def cmd_send_dm(payload):
     thread_fbid, interop_fbid, thread_reason = find_thread_fbid(sessionid, csrftoken, uid)
 
     if thread_fbid:
-        log("send_dm: found existing thread", {"thread_fbid": thread_fbid})
         recipient_igids = [interop_fbid] if interop_fbid else None
         ok, status, body, errors, otid = send_dm_graphql(sessionid, csrftoken, thread_fbid, recipient_igids, text, tokens, own_id)
     else:
-        log("send_dm: no existing thread, trying new thread", {"reason": thread_reason})
         recipient_igids = [str(uid)]
         ok, status, body, errors, otid = send_dm_graphql(sessionid, csrftoken, None, recipient_igids, text, tokens, own_id)
 
@@ -434,8 +391,6 @@ def cmd_debug(payload):
     r = s.get("https://www.instagram.com/", headers={"Accept": "text/html"}, timeout=15)
     own_id = extract_own_userid(r.text) or (sessionid.split(":")[0] if ":" in sessionid else None)
     tokens = extract_tokens(r.text)
-
-    log("debug: own userId", {"ownId": own_id, "csrftoken": csrftoken[:10] + "..." if csrftoken else "(none)"})
 
     uid, resolve_reason = resolve_userid_strict(sessionid, csrftoken, recipient, own_id)
     if not uid:
@@ -470,9 +425,6 @@ def cmd_debug(payload):
         "recipientIgids": recipient_igids,
     }
 
-# ──────────────────────────────────────────────
-# Main
-# ──────────────────────────────────────────────
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print(json.dumps({"ok": False, "error": "Usage: ig_worker.py <command> '<json>'"}))
