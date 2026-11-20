@@ -385,23 +385,41 @@
       return;
     }
 
+    // Only verify recipients who haven't already been checked!
+    const unverified = state.recipients.filter(h => {
+      const v = state.verifiedRecipients[h.toLowerCase()];
+      return !v || v.exists === undefined;
+    });
+
+    if (unverified.length === 0) {
+      renderVerifiedRecipientsList();
+      addLog('system', 'completed', `All ${state.recipients.length} recipients are already verified and cached.`);
+      return;
+    }
+
+    const alreadyVerifiedCount = state.recipients.length - unverified.length;
+
     const buttons = [dom.btnVerifyRecipients, dom.btnVerifyFull].filter(Boolean);
     buttons.forEach(b => {
       b.disabled = true;
-      b.innerHTML = `<span class="iconify" data-icon="ph:spinner-gap-bold" data-width="13" style="animation:spin 1s linear infinite"></span> Verifying...`;
+      b.innerHTML = `<span class="iconify" data-icon="ph:spinner-gap-bold" data-width="13" style="animation:spin 1s linear infinite"></span> Verifying (${unverified.length})...`;
     });
 
     show(dom.recipientsVerificationBox);
     show(dom.recipientsFullVerificationBox);
 
+    const statusMsg = alreadyVerifiedCount > 0
+      ? `Verifying ${unverified.length} new profile(s)... (${alreadyVerifiedCount} already cached)`
+      : `Verifying ${unverified.length} profiles and pre-fetching IDs...`;
+
     if (dom.verifiedRecipientsList) {
-      dom.verifiedRecipientsList.innerHTML = `<div class="p-3 text-xs text-zinc-500 flex items-center gap-2"><span class="iconify text-primary" data-icon="ph:spinner-gap-bold" data-width="14" style="animation:spin 1s linear infinite"></span> Verifying ${state.recipients.length} profiles and pre-fetching numeric IDs...</div>`;
+      dom.verifiedRecipientsList.innerHTML = `<div class="p-3 text-xs text-zinc-500 flex items-center gap-2"><span class="iconify text-primary" data-icon="ph:spinner-gap-bold" data-width="14" style="animation:spin 1s linear infinite"></span> ${statusMsg}</div>`;
     }
     if (dom.verifiedRecipientsListFull) {
-      dom.verifiedRecipientsListFull.innerHTML = `<div class="p-3 text-xs text-zinc-500 flex items-center gap-2"><span class="iconify text-primary" data-icon="ph:spinner-gap-bold" data-width="14" style="animation:spin 1s linear infinite"></span> Verifying ${state.recipients.length} profiles and pre-fetching numeric IDs...</div>`;
+      dom.verifiedRecipientsListFull.innerHTML = `<div class="p-3 text-xs text-zinc-500 flex items-center gap-2"><span class="iconify text-primary" data-icon="ph:spinner-gap-bold" data-width="14" style="animation:spin 1s linear infinite"></span> ${statusMsg}</div>`;
     }
 
-    addLog('system', 'running', `Verifying ${state.recipients.length} recipient handles on Instagram...`);
+    addLog('system', 'running', `Verifying ${unverified.length} new recipient(s) on Instagram (${alreadyVerifiedCount} skipped as already verified)...`);
 
     try {
       const res = await fetch('/api/resolve-recipients', {
@@ -410,7 +428,7 @@
         body: JSON.stringify({
           sessionid: state.sessionId,
           csrftoken: state.csrfToken,
-          usernames: state.recipients,
+          usernames: unverified,
         }),
       });
 
@@ -431,9 +449,9 @@
         save();
         renderVerifiedRecipientsList();
 
-        const validCount = data.results.filter(r => r.exists).length;
-        const invalidCount = data.results.filter(r => !r.exists).length;
-        addLog('system', 'completed', `Verified ${data.results.length} recipients: ${validCount} valid & pre-cached (${invalidCount} invalid/not found).`);
+        const newValid = data.results.filter(r => r.exists).length;
+        const newInvalid = data.results.filter(r => !r.exists).length;
+        addLog('system', 'completed', `Verified ${unverified.length} new recipient(s): ${newValid} valid, ${newInvalid} not found (${alreadyVerifiedCount} kept from cache).`);
       } else {
         const err = data.error || 'Failed to verify recipients.';
         alert(`Verification error: ${err}`);
