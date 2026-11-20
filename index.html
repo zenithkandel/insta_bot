@@ -3,476 +3,261 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>InstaDM — Direct Outreach Manager</title>
+  <title>InstaDM — Direct Outreach</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
   <script src="https://code.iconify.design/3/3.1.1/iconify.min.js"></script>
 </head>
 <body>
 
-  <!-- ================= TOP APP BAR ================= -->
-  <header class="app-header">
-    <div class="header-left">
-      <div class="brand-badge">
-        <span class="iconify brand-icon" data-icon="ph:paper-plane-tilt-fill" data-width="17"></span>
-        <span class="brand-title">InstaDM</span>
+  <!-- ================= TOP HEADER ================= -->
+  <header class="site-header">
+    <div class="header-inner">
+      <div class="brand">
+        <span class="iconify brand-icon" data-icon="ph:paper-plane-tilt-bold" data-width="16"></span>
+        <span class="brand-name">InstaDM</span>
       </div>
 
-      <!-- Live Headless Chrome Status Indicator -->
-      <div class="browser-status-pill" id="browserStatusContainer" title="Headless Chrome status">
-        <span class="status-indicator-dot" id="browserStatusDot"></span>
-        <span class="status-indicator-label" id="browserStatusLabel">Checking browser...</span>
-      </div>
-    </div>
+      <div class="header-right">
+        <!-- Live Browser Warmth Status -->
+        <div class="browser-status" id="browserStatusContainer" title="Headless Chrome status">
+          <span class="status-dot" id="browserStatusDot"></span>
+          <span class="status-text" id="browserStatusLabel">Browser Standby</span>
+        </div>
 
-    <div class="header-right">
-      <!-- Session / Account Status Card in Header -->
-      <div class="account-pill" id="headerAccountPill">
-        <div class="account-avatar" id="headerAvatar">
-          <span class="iconify" data-icon="ph:user-bold" data-width="12"></span>
-        </div>
-        <div class="account-details">
-          <span class="account-username" id="headerUsername">Not Connected</span>
-          <span class="account-status-sub" id="headerAccountSub">No active session</span>
-        </div>
-        <button class="btn-subtle btn-xs" id="btnOpenSessionModal" title="Configure session cookies">
-          <span class="iconify" data-icon="ph:sliders-horizontal-bold" data-width="13"></span>
-          <span id="sessionBtnLabel">Connect</span>
+        <!-- Account Pill -->
+        <button class="account-btn" id="btnToggleAccountDrawer">
+          <span class="iconify" data-icon="ph:user-circle-bold" data-width="14"></span>
+          <span id="headerAccountLabel">Connect Session</span>
         </button>
       </div>
-
-      <!-- Quick Actions -->
-      <button class="btn-ghost btn-sm" id="btnExportBackup" title="Export campaign settings and IDs as JSON">
-        <span class="iconify" data-icon="ph:export-bold" data-width="14"></span>
-        <span class="hide-mobile">Export</span>
-      </button>
-      <button class="btn-ghost btn-sm" id="btnImportBackupTrigger" title="Import backup JSON">
-        <span class="iconify" data-icon="ph:import-bold" data-width="14"></span>
-        <span class="hide-mobile">Import</span>
-      </button>
-      <input type="file" id="backupFileInput" accept=".json" class="sr-only" />
     </div>
   </header>
 
-  <!-- Mobile View Switcher (for small screens < 960px) -->
-  <div class="mobile-section-nav" id="mobileNav">
-    <button class="mobile-nav-btn active" id="btnMobileComposer">
-      <span class="iconify" data-icon="ph:faders-horizontal-bold" data-width="14"></span>
-      <span>Controls & Message</span>
-    </button>
-    <button class="mobile-nav-btn" id="btnMobileWorkspace">
-      <span class="iconify" data-icon="ph:users-three-bold" data-width="14"></span>
-      <span>Recipients & Logs</span>
-    </button>
-  </div>
+  <!-- ================= CENTERED MINIMAL CONTAINER ================= -->
+  <main class="page-container">
 
-  <!-- ================= MAIN 2-COLUMN LAYOUT ================= -->
-  <main class="app-layout">
+    <!-- ── SECTION 1: ACCOUNT & SESSION (COLLAPSIBLE / COMPACT) ── -->
+    <section class="section-card" id="accountSection">
+      <div class="section-header">
+        <span class="section-title">
+          <span class="step-num">1</span>
+          <span>Instagram Account</span>
+        </span>
+        <button class="text-btn" id="btnEditSession">Change Session</button>
+      </div>
 
-    <!-- ──────────────────────────────────────────
-         LEFT COLUMN: COMPOSER & CAMPAIGN CONTROLS
-         ────────────────────────────────────────── -->
-    <aside class="composer-column" id="composerColumn">
-
-      <!-- Active Sender Identity Card -->
-      <section class="card sender-card" id="senderCard">
-        <div class="card-header-bar">
-          <span class="section-label">
-            <span class="iconify" data-icon="ph:user-circle-bold" data-width="14"></span>
-            Sender Account
-          </span>
-          <button class="link-btn" id="btnToggleSessionDrawer">Change Cookie</button>
+      <!-- Compact Active Account Row -->
+      <div class="account-summary" id="accountSummary">
+        <div class="account-avatar" id="accountAvatar">
+          <span class="iconify" data-icon="ph:user-bold" data-width="14"></span>
         </div>
-
-        <div class="sender-info-row" id="senderInfoDisplay">
-          <div class="sender-avatar" id="senderAvatar">
-            <span class="iconify" data-icon="ph:user-bold" data-width="15"></span>
+        <div class="account-meta">
+          <div class="account-name-row">
+            <span class="account-handle font-mono" id="accountHandle">No session configured</span>
+            <span class="pill pill-neutral" id="accountStatusPill">Disconnected</span>
           </div>
-          <div class="sender-meta">
-            <div class="sender-username-line">
-              <span class="sender-name font-mono" id="senderUsernameText">No session configured</span>
-              <span class="badge badge-neutral" id="senderStatusBadge">Offline</span>
-            </div>
-            <div class="sender-id-line">
-              <span class="text-muted text-xs">Instagram User ID:</span>
-              <span class="font-mono text-xs text-secondary" id="senderUserIdText">—</span>
-            </div>
-          </div>
+          <span class="account-sub" id="accountUserId">Add your browser session cookie to begin</span>
         </div>
+      </div>
 
-        <!-- Collapsible Session Input Drawer -->
-        <div class="session-drawer hidden" id="sessionDrawer">
-          <div class="form-group">
-            <label for="sessionIdInput" class="form-label">
-              <span>Instagram Session ID (<code class="font-mono">sessionid</code> cookie)</span>
-            </label>
-            <div class="input-with-action">
-              <input type="password" id="sessionIdInput" class="input-field font-mono text-xs" placeholder="Paste sessionid cookie from browser DevTools..." />
-              <button type="button" class="btn-icon-input" id="toggleSessionVisibility" title="Toggle visibility">
-                <span class="iconify" data-icon="ph:eye-bold" data-width="14"></span>
-              </button>
-            </div>
-            <p class="field-hint">Obtained from <code class="font-mono">instagram.com</code> > DevTools > Application > Cookies. Stored locally in your browser.</p>
-          </div>
-
-          <div class="drawer-actions">
-            <button class="btn btn-secondary btn-sm" id="btnCloseSessionDrawer">Cancel</button>
-            <button class="btn btn-primary btn-sm" id="btnSaveSession">
-              <span class="iconify" data-icon="ph:shield-check-bold" data-width="14"></span>
-              <span>Verify & Save</span>
-            </button>
-          </div>
-          <div class="drawer-feedback hidden" id="sessionFeedback"></div>
+      <!-- Collapsible Input Drawer -->
+      <div class="session-drawer hidden" id="sessionDrawer">
+        <label for="sessionIdInput" class="field-label">Session ID (<code class="font-mono">sessionid</code> cookie)</label>
+        <div class="input-row">
+          <input type="password" id="sessionIdInput" class="text-input font-mono" placeholder="Paste sessionid cookie..." />
+          <button type="button" class="btn btn-secondary btn-sm" id="btnToggleSessionVisibility">Show</button>
+          <button type="button" class="btn btn-primary btn-sm" id="btnSaveSession">Save & Verify</button>
         </div>
-      </section>
+        <p class="field-hint">Copy from <code class="font-mono">instagram.com</code> > DevTools > Application > Cookies. Stored locally only.</p>
+        <div class="feedback-msg hidden" id="sessionFeedback"></div>
+      </div>
+    </section>
 
-      <!-- Message Composer -->
-      <section class="card composer-card">
-        <div class="card-header-bar">
-          <span class="section-label">
-            <span class="iconify" data-icon="ph:chat-teardrop-text-bold" data-width="14"></span>
-            Message Content
-          </span>
-          <div class="tag-actions">
-            <span class="text-xs text-muted">Insert:</span>
-            <button type="button" class="tag-pill" id="btnInsertUsername" title="Insert recipient username variable">
-              <code>{{username}}</code>
-            </button>
-          </div>
-        </div>
-
-        <div class="composer-body">
-          <textarea id="messageTextarea" class="message-editor" rows="4" placeholder="Hi {{username}}! Great connecting with you..."></textarea>
-          
-          <div class="composer-footer">
-            <div class="char-counter">
-              <span id="charCount">0</span> chars • <span id="wordCount">0</span> words
-            </div>
-            <button type="button" class="btn-subtle btn-xs" id="btnTogglePreview">
-              <span class="iconify" data-icon="ph:eye-bold" data-width="12"></span>
-              <span>Toggle Preview</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- Live Personalization Preview -->
-        <div class="live-preview-box hidden" id="livePreviewBox">
-          <div class="preview-header">
-            <span class="text-xs text-muted">Preview as:</span>
-            <span class="font-mono text-xs text-accent" id="previewTargetName">@username</span>
-          </div>
-          <div class="preview-bubble" id="previewBubbleText">Your message preview will appear here...</div>
-        </div>
-      </section>
-
-      <!-- Dispatch & Concurrency Settings -->
-      <section class="card dispatch-settings-card">
-        <div class="card-header-bar">
-          <span class="section-label">
-            <span class="iconify" data-icon="ph:cpu-bold" data-width="14"></span>
-            Dispatch Concurrency
-          </span>
-          <span class="badge badge-neutral" id="selectedCountBadge">0 Selected</span>
-        </div>
-
-        <!-- Parallel Workers Selector -->
-        <div class="setting-block">
-          <div class="setting-title-row">
-            <div>
-              <span class="setting-label">Parallel Workers</span>
-              <p class="setting-desc">Number of concurrent dispatches. Set up to the total recipient count.</p>
-            </div>
-            <div class="worker-stepper">
-              <input type="number" id="parallelWorkersInput" class="stepper-input font-mono" min="1" max="100" value="3" />
-            </div>
-          </div>
-
-          <!-- Slider synced to worker count -->
-          <div class="slider-wrapper">
-            <input type="range" id="parallelWorkersSlider" class="range-slider" min="1" max="20" value="3" />
-            <div class="slider-ticks">
-              <span>1</span>
-              <span id="sliderMidLabel">10</span>
-              <span id="sliderMaxLabel">20 Max</span>
-            </div>
-          </div>
-
-          <!-- Quick Preset Buttons -->
-          <div class="preset-chips">
-            <button type="button" class="preset-chip" data-workers="1">1 (Safe)</button>
-            <button type="button" class="preset-chip active" data-workers="3">3 (Default)</button>
-            <button type="button" class="preset-chip" data-workers="5">5 (Fast)</button>
-            <button type="button" class="preset-chip chip-highlight" id="btnSetWorkersMax">
-              <span class="iconify" data-icon="ph:fast-forward-bold" data-width="12"></span>
-              <span>Max Selected</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- Send Interval Pacing -->
-        <div class="setting-row">
-          <div>
-            <span class="setting-label">Pacing Delay</span>
-            <p class="setting-desc">Seconds to pause between worker dispatches (<code class="font-mono">0s</code> is instant).</p>
-          </div>
-          <div class="interval-wrapper">
-            <input type="number" id="pacingIntervalInput" class="stepper-input font-mono" min="0" max="60" value="0" />
-            <span class="input-unit">sec</span>
-          </div>
-        </div>
-      </section>
-
-      <!-- Campaign Controls & Progress -->
-      <section class="card campaign-run-card">
-        <div class="card-header-bar">
-          <span class="section-label">
-            <span class="iconify" data-icon="ph:broadcast-bold" data-width="14"></span>
-            Campaign Execution
-          </span>
-          <span class="badge badge-idle" id="campaignStatusPill">Idle</span>
-        </div>
-
-        <!-- Primary CTA Buttons -->
-        <div class="action-buttons-group">
-          <button class="btn btn-primary btn-lg w-full" id="btnStartCampaign">
-            <span class="iconify" data-icon="ph:play-fill" data-width="15"></span>
-            <span id="startBtnLabel">Start Campaign</span>
-          </button>
-          <div class="run-actions-row hidden" id="runningActionsRow">
-            <button class="btn btn-warning btn-md flex-1" id="btnPauseCampaign">
-              <span class="iconify" data-icon="ph:pause-fill" data-width="14"></span>
-              <span>Pause</span>
-            </button>
-            <button class="btn btn-primary btn-md flex-1 hidden" id="btnResumeCampaign">
-              <span class="iconify" data-icon="ph:play-fill" data-width="14"></span>
-              <span>Resume</span>
-            </button>
-            <button class="btn btn-danger btn-md flex-1" id="btnStopCampaign">
-              <span class="iconify" data-icon="ph:stop-fill" data-width="14"></span>
-              <span>Stop</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- Progress Bar & Metrics -->
-        <div class="progress-section">
-          <div class="progress-meta">
-            <span class="text-xs text-muted" id="currentWorkerActivity">Awaiting start</span>
-            <span class="font-mono text-xs font-semibold" id="progressPercentageText">0%</span>
-          </div>
-          <div class="progress-track">
-            <div class="progress-fill" id="progressFill" style="width: 0%"></div>
-          </div>
-        </div>
-
-        <!-- 4 Stat Counters -->
-        <div class="metrics-grid">
-          <div class="metric-card">
-            <span class="metric-title">Selected</span>
-            <span class="metric-value font-mono" id="statSelected">0</span>
-          </div>
-          <div class="metric-card metric-success">
-            <span class="metric-title">Sent</span>
-            <span class="metric-value font-mono" id="statSent">0</span>
-          </div>
-          <div class="metric-card metric-danger">
-            <span class="metric-title">Failed</span>
-            <span class="metric-value font-mono" id="statFailed">0</span>
-          </div>
-          <div class="metric-card">
-            <span class="metric-title">Remaining</span>
-            <span class="metric-value font-mono" id="statRemaining">0</span>
-          </div>
-        </div>
-      </section>
-
-    </aside>
-
-    <!-- ──────────────────────────────────────────
-         RIGHT COLUMN: RECIPIENT WORKSPACE & ACTIVITY
-         ────────────────────────────────────────── -->
-    <section class="workspace-column" id="workspaceColumn">
-
-      <!-- Navigation Tabs Switcher -->
-      <div class="workspace-header">
-        <div class="tab-pill-group">
-          <button class="tab-pill active" id="tabRecipientsBtn" data-target="recipientsView">
-            <span class="iconify" data-icon="ph:users-three-bold" data-width="15"></span>
+    <!-- ── SECTION 2: RECIPIENTS ── -->
+    <section class="section-card">
+      <div class="section-header">
+        <div class="title-with-pill">
+          <span class="section-title">
+            <span class="step-num">2</span>
             <span>Recipients</span>
-            <span class="tab-count-badge" id="recipientsTabBadge">0</span>
-          </button>
-          <button class="tab-pill" id="tabLogsBtn" data-target="logsView">
-            <span class="iconify" data-icon="ph:terminal-window-bold" data-width="15"></span>
-            <span>Live Activity</span>
-            <span class="tab-count-badge" id="logsTabBadge">0</span>
-          </button>
+          </span>
+          <span class="count-pill" id="recipientsCountPill">0 selected of 0</span>
         </div>
 
-        <!-- Contextual Header Actions -->
-        <div class="workspace-header-actions" id="recipientsHeaderActions">
+        <div class="header-actions">
           <button class="btn btn-secondary btn-sm" id="btnOpenAddModal">
-            <span class="iconify" data-icon="ph:plus-bold" data-width="13"></span>
+            <span class="iconify" data-icon="ph:plus-bold" data-width="12"></span>
             <span>Add Handles</span>
           </button>
-          <button class="btn btn-primary btn-sm" id="btnVerifyUnchecked" title="Verify profiles and cache numeric IDs upfront without re-verifying cached handles">
-            <span class="iconify" data-icon="ph:check-circle-bold" data-width="13"></span>
+          <button class="btn btn-primary btn-sm" id="btnVerifyUnchecked">
+            <span class="iconify" data-icon="ph:check-circle-bold" data-width="12"></span>
             <span id="btnVerifyLabel">Verify IDs</span>
           </button>
         </div>
+      </div>
 
-        <div class="workspace-header-actions hidden" id="logsHeaderActions">
-          <button class="btn btn-secondary btn-sm" id="btnClearLogs">
-            <span class="iconify" data-icon="ph:trash-bold" data-width="13"></span>
-            <span>Clear Logs</span>
-          </button>
-          <button class="btn btn-secondary btn-sm" id="btnExportLogs">
-            <span class="iconify" data-icon="ph:download-simple-bold" data-width="13"></span>
-            <span>Export JSON</span>
-          </button>
+      <!-- Recipient Controls Bar -->
+      <div class="recipients-toolbar">
+        <div class="search-wrap">
+          <span class="iconify search-icon" data-icon="ph:magnifying-glass-bold" data-width="13"></span>
+          <input type="text" id="recipientSearchInput" class="search-field" placeholder="Filter recipients..." />
+        </div>
+
+        <div class="toolbar-links">
+          <button class="link-action" id="btnSelectAll">Select All</button>
+          <span class="pipe">/</span>
+          <button class="link-action" id="btnDeselectAll">Deselect</button>
+          <span class="pipe">/</span>
+          <button class="link-action text-danger" id="btnDeleteSelected">Delete</button>
+          <span class="pipe hidden" id="pipeInvalid">/</span>
+          <button class="link-action text-warning hidden" id="btnRemoveInvalid">Remove 404s (<span id="invalidCountBadge">0</span>)</button>
         </div>
       </div>
 
-      <!-- VIEW 1: RECIPIENTS MANAGEMENT -->
-      <div class="workspace-view active" id="recipientsView">
-
-        <!-- Search & Filter Bar -->
-        <div class="table-toolbar">
-          <div class="search-box">
-            <span class="iconify search-icon" data-icon="ph:magnifying-glass-bold" data-width="14"></span>
-            <input type="text" id="recipientSearchInput" class="search-input" placeholder="Filter by username, name, or ID..." />
-            <button class="clear-search-btn hidden" id="btnClearSearch" title="Clear search">
-              <span class="iconify" data-icon="ph:x-bold" data-width="12"></span>
-            </button>
-          </div>
-
-          <div class="filter-pills-row">
-            <button class="filter-chip active" data-filter="all">All (<span id="filterCountAll">0</span>)</button>
-            <button class="filter-chip" data-filter="selected">Selected (<span id="filterCountSelected">0</span>)</button>
-            <button class="filter-chip" data-filter="verified">Verified (<span id="filterCountVerified">0</span>)</button>
-            <button class="filter-chip" data-filter="unverified">Unchecked (<span id="filterCountUnverified">0</span>)</button>
-            <button class="filter-chip" data-filter="invalid">Not Found (<span id="filterCountInvalid">0</span>)</button>
-          </div>
-
-          <!-- Bulk Selection Shortcuts -->
-          <div class="bulk-actions-row">
-            <button class="link-btn-sm" id="btnSelectAll">Select All</button>
-            <span class="divider-pipe"></span>
-            <button class="link-btn-sm" id="btnDeselectAll">Deselect All</button>
-            <span class="divider-pipe"></span>
-            <button class="link-btn-sm" id="btnSelectVerified">Select Verified</button>
-            <span class="divider-pipe"></span>
-            <button class="link-btn-sm text-danger" id="btnDeleteSelected">Remove Selected</button>
-            <span class="divider-pipe" id="removeInvalidDivider"></span>
-            <button class="link-btn-sm text-warning hidden" id="btnRemoveInvalid">Remove 404s (<span id="invalidCountBadge">0</span>)</button>
-          </div>
+      <!-- Recipient List Container -->
+      <div class="recipients-list-wrap">
+        <div class="recipients-list" id="recipientsList">
+          <!-- Rendered dynamically -->
         </div>
 
-        <!-- Recipients Table Container (Optimized for 100s of handles) -->
-        <div class="table-container">
-          <table class="recipients-table">
-            <thead>
-              <tr>
-                <th class="th-checkbox">
-                  <input type="checkbox" id="masterCheckbox" title="Select / Deselect All visible" />
-                </th>
-                <th class="th-user">Instagram Handle</th>
-                <th class="th-name">Full Name</th>
-                <th class="th-id">Cached User ID</th>
-                <th class="th-verification">Verification</th>
-                <th class="th-status">Send Status</th>
-                <th class="th-action"></th>
-              </tr>
-            </thead>
-            <tbody id="recipientsTableBody">
-              <!-- Rendered dynamically by app.js -->
-            </tbody>
-          </table>
-
-          <!-- Empty State -->
-          <div class="table-empty-state hidden" id="recipientsEmptyState">
-            <span class="iconify empty-icon" data-icon="ph:users-three-light" data-width="40"></span>
-            <p class="empty-title">No recipients added</p>
-            <p class="empty-desc">Add Instagram handles to start preparing your campaign.</p>
-            <button class="btn btn-primary btn-sm" id="btnEmptyAdd">
-              <span class="iconify" data-icon="ph:plus-bold" data-width="13"></span>
-              <span>Add Recipients</span>
-            </button>
-          </div>
+        <div class="empty-recipients hidden" id="emptyRecipientsState">
+          <span class="iconify" data-icon="ph:users-three-light" data-width="32"></span>
+          <p>No recipients added yet</p>
+          <button class="link-action" id="btnEmptyAdd">Click here to paste Instagram handles</button>
         </div>
+      </div>
+    </section>
 
+    <!-- ── SECTION 3: MESSAGE ── -->
+    <section class="section-card">
+      <div class="section-header">
+        <span class="section-title">
+          <span class="step-num">3</span>
+          <span>Message</span>
+        </span>
+        <button type="button" class="tag-insert-btn" id="btnInsertUsername" title="Insert username variable">
+          <code>{{username}}</code>
+        </button>
       </div>
 
-      <!-- VIEW 2: BEAUTIFIED LIVE ACTIVITY LOGS -->
-      <div class="workspace-view hidden" id="logsView">
-
-        <!-- Logs Filter Toolbar -->
-        <div class="table-toolbar">
-          <div class="search-box">
-            <span class="iconify search-icon" data-icon="ph:magnifying-glass-bold" data-width="14"></span>
-            <input type="text" id="logSearchInput" class="search-input" placeholder="Search logs..." />
-          </div>
-
-          <div class="filter-pills-row">
-            <button class="filter-chip active" data-log-filter="all">All Events (<span id="logFilterAll">0</span>)</button>
-            <button class="filter-chip" data-log-filter="sent">Sent (<span id="logFilterSent">0</span>)</button>
-            <button class="filter-chip" data-log-filter="failed">Failed (<span id="logFilterFailed">0</span>)</button>
-            <button class="filter-chip" data-log-filter="system">System (<span id="logFilterSystem">0</span>)</button>
-          </div>
+      <div class="message-wrap">
+        <textarea id="messageTextarea" class="message-input" rows="3" placeholder="Hi {{username}}! Great connecting with you..."></textarea>
+        
+        <div class="message-meta-row">
+          <span class="char-info"><span id="charCount">0</span> characters</span>
+          <span class="preview-text" id="previewSnippet">Preview: Hi @user...</span>
         </div>
+      </div>
+    </section>
 
-        <!-- Beautified Activity Feed -->
-        <div class="logs-feed-container" id="logsFeedContainer">
-          <!-- Rendered dynamically as sleek monospace cards -->
-        </div>
-
+    <!-- ── SECTION 4: DISPATCH & EXECUTION ── -->
+    <section class="section-card dispatch-section">
+      <div class="section-header">
+        <span class="section-title">
+          <span class="step-num">4</span>
+          <span>Dispatch & Send</span>
+        </span>
+        <span class="pill pill-idle" id="campaignStatusPill">Idle</span>
       </div>
 
+      <!-- Worker Speed Presets -->
+      <div class="dispatch-config-row">
+        <div class="config-label-group">
+          <span class="config-name">Parallel Workers</span>
+          <span class="config-hint" id="workerExplainText">Sends to 3 recipients simultaneously</span>
+        </div>
+
+        <div class="worker-chips" id="workerChipsContainer">
+          <button class="worker-chip" data-workers="1">1</button>
+          <button class="worker-chip active" data-workers="3">3</button>
+          <button class="worker-chip" data-workers="5">5</button>
+          <button class="worker-chip" id="btnWorkersMax">All</button>
+        </div>
+      </div>
+
+      <!-- Primary Action CTA -->
+      <div class="campaign-cta-row">
+        <button class="btn btn-primary btn-lg w-full" id="btnStartCampaign">
+          <span class="iconify" data-icon="ph:play-fill" data-width="14"></span>
+          <span id="startBtnLabel">Start Campaign</span>
+        </button>
+
+        <!-- Active Controls -->
+        <div class="running-controls hidden" id="runningActionsRow">
+          <button class="btn btn-secondary flex-1" id="btnPauseCampaign">Pause</button>
+          <button class="btn btn-primary flex-1 hidden" id="btnResumeCampaign">Resume</button>
+          <button class="btn btn-danger flex-1" id="btnStopCampaign">Stop</button>
+        </div>
+      </div>
+
+      <!-- Live Progress Bar -->
+      <div class="progress-wrap">
+        <div class="progress-info-line">
+          <span class="progress-label" id="currentWorkerActivity">Ready to dispatch</span>
+          <span class="progress-stats font-mono">
+            <span class="text-success" id="statSent">0</span> sent • 
+            <span class="text-danger" id="statFailed">0</span> failed • 
+            <span id="statRemaining">0</span> left
+          </span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── SECTION 5: ACTIVITY LOG (MINIMAL & CLEAN) ── -->
+    <section class="section-card logs-section">
+      <div class="section-header">
+        <span class="section-title">
+          <span class="iconify" data-icon="ph:list-bullets-bold" data-width="14"></span>
+          <span>Activity</span>
+        </span>
+        <div class="logs-actions">
+          <button class="text-btn" id="btnClearLogs">Clear</button>
+          <span class="pipe">/</span>
+          <button class="text-btn" id="btnExportLogs">Export</button>
+        </div>
+      </div>
+
+      <div class="logs-feed" id="logsFeed">
+        <div class="empty-logs">No activity recorded yet.</div>
+      </div>
     </section>
 
   </main>
 
   <!-- ================= ADD RECIPIENTS MODAL ================= -->
   <div class="modal-backdrop hidden" id="addRecipientsModal">
-    <div class="modal-dialog">
+    <div class="modal-card">
       <div class="modal-header">
-        <div class="modal-title-wrap">
-          <span class="iconify" data-icon="ph:user-plus-bold" data-width="17"></span>
-          <h3 class="modal-title">Add Instagram Recipients</h3>
-        </div>
-        <button class="modal-close-btn" id="btnCloseAddModal" title="Close">
-          <span class="iconify" data-icon="ph:x-bold" data-width="15"></span>
+        <span class="modal-title">Add Instagram Recipients</span>
+        <button class="icon-btn" id="btnCloseAddModal">
+          <span class="iconify" data-icon="ph:x-bold" data-width="14"></span>
         </button>
       </div>
 
       <div class="modal-body">
-        <p class="modal-desc">Paste handles below (one per line, with or without <code class="font-mono">@</code>). Duplicates are stripped automatically.</p>
+        <p class="modal-desc">Paste handles below (one per line, with or without <code class="font-mono">@</code>). Duplicates are removed automatically.</p>
         
-        <textarea id="importTextarea" class="import-textarea font-mono" rows="8" placeholder="username_one&#10;@username_two&#10;username_three"></textarea>
+        <textarea id="importTextarea" class="import-textarea font-mono" rows="6" placeholder="username_one&#10;@username_two&#10;username_three"></textarea>
 
-        <div class="import-footer-row">
-          <div class="import-file-section">
-            <label for="importFileInput" class="btn-subtle btn-xs">
-              <span class="iconify" data-icon="ph:file-arrow-up-bold" data-width="13"></span>
-              <span>Upload .txt or .csv</span>
-            </label>
-            <input type="file" id="importFileInput" accept=".txt,.csv" class="sr-only" />
-            <span class="text-xs text-muted" id="importFileLabel">No file chosen</span>
-          </div>
-
-          <div class="text-xs text-muted">
-            <span id="importParsedCount">0</span> handles detected
-          </div>
+        <div class="import-file-row">
+          <label for="importFileInput" class="btn btn-secondary btn-sm">
+            <span class="iconify" data-icon="ph:file-arrow-up-bold" data-width="13"></span>
+            <span>Upload .txt / .csv</span>
+          </label>
+          <input type="file" id="importFileInput" accept=".txt,.csv" class="sr-only" />
+          <span class="file-count" id="importParsedCount">0 handles detected</span>
         </div>
       </div>
 
       <div class="modal-footer">
         <button class="btn btn-secondary btn-sm" id="btnCancelAddModal">Cancel</button>
-        <button class="btn btn-primary btn-sm" id="btnConfirmAddRecipients">
-          <span class="iconify" data-icon="ph:plus-bold" data-width="13"></span>
-          <span>Add to Campaign</span>
-        </button>
+        <button class="btn btn-primary btn-sm" id="btnConfirmAddRecipients">Add Recipients</button>
       </div>
     </div>
   </div>
