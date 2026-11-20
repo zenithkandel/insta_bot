@@ -1,6 +1,6 @@
 /**
- * InstaDM — High-Speed Campaign Manager Frontend
- * Pure vanilla SPA with Linear/Raycast design ergonomics.
+ * InstaDM — Minimalist Outreach Manager Frontend
+ * Warm Beige Theme, pure SVG icons, responsive layout, zero AI-slop bloat.
  */
 
 (() => {
@@ -58,6 +58,9 @@
       'headerAccountPill', 'headerAvatar', 'headerUsername', 'headerAccountSub',
       'btnOpenSessionModal', 'sessionBtnLabel', 'btnExportBackup', 'btnImportBackupTrigger', 'backupFileInput',
 
+      // Mobile Nav
+      'btnMobileComposer', 'btnMobileWorkspace', 'composerColumn', 'workspaceColumn',
+
       // Left Column: Sender Card
       'btnToggleSessionDrawer', 'senderAvatar', 'senderUsernameText', 'senderStatusBadge', 'senderUserIdText',
       'sessionDrawer', 'sessionIdInput', 'toggleSessionVisibility', 'btnCloseSessionDrawer', 'btnSaveSession', 'sessionFeedback',
@@ -114,7 +117,6 @@
       if (savedSelected) {
         state.selectedRecipients = new Set(JSON.parse(savedSelected));
       } else {
-        // Default select all
         state.selectedRecipients = new Set(state.recipients);
       }
 
@@ -142,7 +144,7 @@
       localStorage.setItem(STORAGE_KEYS.MESSAGE, state.messageText);
       localStorage.setItem(STORAGE_KEYS.PARALLEL_WORKERS, String(state.parallelWorkers));
       localStorage.setItem(STORAGE_KEYS.PACING_INTERVAL, String(state.pacingInterval));
-      localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(state.logs.slice(0, 300))); // Keep latest 300
+      localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(state.logs.slice(0, 300)));
     } catch (err) {
       console.warn('Error saving to localStorage:', err);
     }
@@ -200,8 +202,8 @@
         dom.senderAvatar.innerHTML = `<img src="${escapeHtml(s.profilePic)}" alt="" />`;
       } else {
         const initial = (s.username || 'U').charAt(0).toUpperCase();
-        dom.headerAvatar.textContent = initial;
-        dom.senderAvatar.textContent = initial;
+        dom.headerAvatar.innerHTML = `<span class="font-mono text-xs">${initial}</span>`;
+        dom.senderAvatar.innerHTML = `<span class="font-mono text-xs">${initial}</span>`;
       }
 
       // Sender Card
@@ -214,8 +216,8 @@
       dom.headerUsername.textContent = 'Cookie Saved';
       dom.headerAccountSub.textContent = 'Click to verify';
       dom.sessionBtnLabel.textContent = 'Verify';
-      dom.headerAvatar.textContent = '🍪';
-      dom.senderAvatar.textContent = '🍪';
+      dom.headerAvatar.innerHTML = `<span class="iconify" data-icon="ph:cookie-bold" data-width="12"></span>`;
+      dom.senderAvatar.innerHTML = `<span class="iconify" data-icon="ph:cookie-bold" data-width="15"></span>`;
       dom.senderUsernameText.textContent = 'Unverified Cookie';
       dom.senderStatusBadge.className = 'badge badge-warning';
       dom.senderStatusBadge.textContent = 'Unverified';
@@ -225,8 +227,8 @@
       dom.headerUsername.textContent = 'Not Connected';
       dom.headerAccountSub.textContent = 'No session active';
       dom.sessionBtnLabel.textContent = 'Connect';
-      dom.headerAvatar.textContent = '?';
-      dom.senderAvatar.textContent = '?';
+      dom.headerAvatar.innerHTML = `<span class="iconify" data-icon="ph:user-bold" data-width="12"></span>`;
+      dom.senderAvatar.innerHTML = `<span class="iconify" data-icon="ph:user-bold" data-width="15"></span>`;
       dom.senderUsernameText.textContent = 'No session configured';
       dom.senderStatusBadge.className = 'badge badge-neutral';
       dom.senderStatusBadge.textContent = 'Offline';
@@ -247,7 +249,7 @@
     }
 
     dom.btnSaveSession.disabled = true;
-    dom.btnSaveSession.innerHTML = `<span class="iconify" data-icon="ph:spinner" data-width="14"></span> Verifying...`;
+    dom.btnSaveSession.innerHTML = `<span class="iconify" data-icon="ph:spinner" data-width="13"></span> Verifying...`;
     showSessionFeedback('neutral', 'Connecting to Instagram & extracting authenticated profile...');
 
     try {
@@ -305,7 +307,6 @@
   }
 
   function updateLivePreview() {
-    // Pick first selected recipient, or first recipient, or fallback
     let target = 'username';
     for (const r of state.recipients) {
       if (state.selectedRecipients.has(r)) {
@@ -330,7 +331,6 @@
     const selectedCount = state.selectedRecipients.size;
     dom.selectedCountBadge.textContent = `${selectedCount} Selected`;
 
-    // Max limit is either the selected count or at least 20
     const dynamicMax = Math.max(selectedCount > 0 ? selectedCount : 20, 20);
     dom.parallelWorkersSlider.max = dynamicMax;
     dom.parallelWorkersInput.max = dynamicMax;
@@ -338,7 +338,6 @@
     dom.sliderMidLabel.textContent = Math.round(dynamicMax / 2);
     dom.sliderMaxLabel.textContent = `${dynamicMax} Max`;
 
-    // Keep value within bounds
     let currentVal = Number(dom.parallelWorkersInput.value) || state.parallelWorkers || 3;
     if (selectedCount > 0 && currentVal > selectedCount) {
       currentVal = selectedCount;
@@ -349,13 +348,11 @@
     dom.parallelWorkersInput.value = currentVal;
     dom.parallelWorkersSlider.value = currentVal;
 
-    // Update preset chips active state
     document.querySelectorAll('.preset-chip[data-workers]').forEach(chip => {
       const w = Number(chip.dataset.workers);
       chip.classList.toggle('active', w === currentVal);
     });
 
-    // Update primary CTA button text
     if (state.campaignStatus === 'idle') {
       dom.startBtnLabel.textContent = selectedCount > 0 
         ? `Start Campaign (Send to ${selectedCount} Selected)` 
@@ -390,7 +387,7 @@
       if (!existingSet.has(handle)) {
         existingSet.add(handle);
         state.recipients.push(handle);
-        state.selectedRecipients.add(handle); // Auto-select new additions
+        state.selectedRecipients.add(handle);
         addedCount++;
       }
     });
@@ -430,7 +427,6 @@
       return !(v && v.exists === false);
     });
     
-    // Clean selection
     const validSet = new Set(state.recipients);
     state.selectedRecipients = new Set(Array.from(state.selectedRecipients).filter(h => validSet.has(h)));
 
@@ -464,7 +460,6 @@
     updateMasterCheckbox();
     updateLivePreview();
 
-    // Toggle row class
     const row = document.getElementById(`row-${handle}`);
     if (row) row.classList.toggle('selected', isSelected);
   }
@@ -500,7 +495,6 @@
     updateLivePreview();
   }
 
-  // Filter & Search logic
   function getFilteredRecipients() {
     const q = state.recipientSearchQuery.toLowerCase().trim();
     const f = state.recipientFilter;
@@ -508,13 +502,11 @@
     return state.recipients.filter(h => {
       const v = state.verifiedRecipients[h];
       
-      // Filter status
       if (f === 'selected' && !state.selectedRecipients.has(h)) return false;
       if (f === 'verified' && (!v || !v.exists)) return false;
       if (f === 'unverified' && v) return false;
       if (f === 'invalid' && (!v || v.exists !== false)) return false;
 
-      // Search match
       if (q) {
         const matchHandle = h.includes(q);
         const matchName = v?.fullName?.toLowerCase().includes(q);
@@ -558,7 +550,7 @@
       // Live Send Status Badge
       let statusBadgeHtml = `<span class="badge badge-neutral text-xs">Pending</span>`;
       if (rowStatus.status === 'sending') {
-        statusBadgeHtml = `<span class="badge badge-running text-xs"><span class="iconify" data-icon="ph:spinner"></span> Sending...</span>`;
+        statusBadgeHtml = `<span class="badge badge-running text-xs"><span class="iconify" data-icon="ph:spinner"></span> Sending</span>`;
       } else if (rowStatus.status === 'sent') {
         const lat = rowStatus.latency ? `<span class="text-accent font-mono ml-1">(${rowStatus.latency})</span>` : '';
         statusBadgeHtml = `<span class="badge badge-success text-xs"><span class="iconify" data-icon="ph:check-circle-fill"></span> Sent${lat}</span>`;
@@ -569,7 +561,7 @@
       // Avatar
       const avatarHtml = v?.profilePic 
         ? `<img src="${escapeHtml(v.profilePic)}" alt="" />`
-        : handle.charAt(0).toUpperCase();
+        : `<span class="font-mono text-xs">${handle.charAt(0).toUpperCase()}</span>`;
 
       const fullName = v?.fullName ? escapeHtml(v.fullName) : '<span class="text-muted">—</span>';
       const userId = v?.userId ? `<code class="font-mono text-xs">${escapeHtml(v.userId)}</code>` : '<span class="text-muted">—</span>';
@@ -677,10 +669,9 @@
       return;
     }
 
-    // Filter ONLY recipients that haven't been verified yet!
     const unverified = state.recipients.filter(h => !state.verifiedRecipients[h]);
     if (unverified.length === 0) {
-      alert('All recipient handles already have their Instagram numeric IDs pre-cached in memory!');
+      alert('All recipient handles already have their Instagram numeric IDs pre-cached.');
       return;
     }
 
@@ -748,7 +739,6 @@
       return;
     }
 
-    // Filter recipients to ONLY selected ones
     state.activeSelectedQueue = state.recipients.filter(h => state.selectedRecipients.has(h));
     if (state.activeSelectedQueue.length === 0) {
       alert('No recipients selected! Please check the boxes for the recipients you want to send to.');
@@ -770,7 +760,6 @@
 
     addLog('system', 'running', `Campaign started — Dispatching to ${totalSelected} selected recipients using ${workersCount} parallel workers (pacing: ${intervalSec}s).`);
 
-    // Worker dispatcher loop
     const workerPromises = [];
     for (let i = 0; i < workersCount; i++) {
       workerPromises.push(campaignWorker(i + 1, intervalSec));
@@ -792,7 +781,6 @@
 
       dom.currentWorkerActivity.textContent = `Worker #${workerId}: Sending to @${username} (${targetNum}/${totalNum})`;
 
-      // Mark row as sending
       state.rowStatuses[username] = { status: 'sending' };
       renderRecipientsTable();
 
@@ -800,7 +788,6 @@
         .replace(/\{\{\s*username\s*\}\}/gi, username)
         .replace(/\{\{\s*handle\s*\}\}/gi, `@${username}`);
 
-      // Dispatch and measure latency
       const startTime = performance.now();
       const sendResult = await sendOneDM(username, personalizedMessage);
       const elapsedMs = Math.round(performance.now() - startTime);
@@ -819,7 +806,6 @@
       updateStatsUI();
       renderRecipientsTable();
 
-      // Pacing interval
       if (intervalSec > 0 && state.campaignStatus === 'running' && state.currentIndex < state.activeSelectedQueue.length) {
         dom.currentWorkerActivity.textContent = `Worker #${workerId}: Pacing ${intervalSec}s...`;
         await sleep(intervalSec * 1000);
@@ -895,7 +881,7 @@
 
   function finishCampaign() {
     state.campaignStatus = 'completed';
-    addLog('system', 'completed', `Campaign completed! Successfully sent: ${state.sentCount}, Failed: ${state.failedCount}.`);
+    addLog('system', 'completed', `Campaign completed. Sent: ${state.sentCount}, Failed: ${state.failedCount}.`);
     updateCampaignControlsUI();
     dom.currentWorkerActivity.textContent = `Completed (${state.sentCount} sent, ${state.failedCount} failed)`;
   }
@@ -988,7 +974,7 @@
     if (filtered.length === 0) {
       dom.logsFeedContainer.innerHTML = `
         <div class="table-empty-state">
-          <span class="iconify empty-icon" data-icon="ph:clipboard-text-duotone" data-width="32"></span>
+          <span class="iconify empty-icon" data-icon="ph:clipboard-text-light" data-width="36"></span>
           <p class="empty-title">No activity logged</p>
           <p class="empty-desc">Events, dispatches, and verification traces will appear here.</p>
         </div>
@@ -999,7 +985,9 @@
     const html = filtered.map(l => {
       const isSystem = l.handle === 'system';
       const handleDisplay = isSystem ? 'System Engine' : `@${escapeHtml(l.handle)}`;
-      const latencyBadge = l.latency ? `<span class="log-latency">⚡ ${l.latency}</span>` : '';
+      const latencyBadge = l.latency 
+        ? `<span class="log-latency"><span class="iconify" data-icon="ph:timer-bold" data-width="10"></span> ${l.latency}</span>` 
+        : '';
 
       return `
         <div class="log-entry-card">
@@ -1058,6 +1046,21 @@
     }
   }
 
+  // Mobile View Switcher (< 960px)
+  function switchMobileView(section) {
+    if (section === 'composer') {
+      dom.btnMobileComposer.classList.add('active');
+      dom.btnMobileWorkspace.classList.remove('active');
+      dom.composerColumn.style.display = 'flex';
+      dom.workspaceColumn.style.display = 'none';
+    } else {
+      dom.btnMobileComposer.classList.remove('active');
+      dom.btnMobileWorkspace.classList.add('active');
+      dom.composerColumn.style.display = 'none';
+      dom.workspaceColumn.style.display = 'flex';
+    }
+  }
+
   // ================= BACKUP IMPORT / EXPORT =================
   function exportBackup() {
     const payload = {
@@ -1105,7 +1108,7 @@
         renderRecipientsTable();
         updateWorkerControls();
         updateMessageUI();
-        alert('Backup data successfully imported!');
+        alert('Backup data successfully imported.');
       } catch (err) {
         alert('Invalid JSON backup file: ' + err.message);
       }
@@ -1130,6 +1133,12 @@
 
   // ================= EVENT BINDINGS =================
   function bindEvents() {
+    // Mobile switcher
+    if (dom.btnMobileComposer && dom.btnMobileWorkspace) {
+      dom.btnMobileComposer.addEventListener('click', () => switchMobileView('composer'));
+      dom.btnMobileWorkspace.addEventListener('click', () => switchMobileView('workspace'));
+    }
+
     // Session Drawer
     dom.btnOpenSessionModal.addEventListener('click', () => {
       dom.sessionDrawer.classList.toggle('hidden');
@@ -1316,13 +1325,20 @@
     });
   }
 
+  // Handle window resize for mobile navigation
+  window.addEventListener('resize', () => {
+    if (window.innerWidth > 960) {
+      if (dom.composerColumn) dom.composerColumn.style.display = '';
+      if (dom.workspaceColumn) dom.workspaceColumn.style.display = '';
+    }
+  });
+
   // ================= INITIALIZATION =================
   function init() {
     cacheDom();
     loadPersistedState();
     bindEvents();
 
-    // Populate initial inputs
     dom.messageTextarea.value = state.messageText;
     dom.pacingIntervalInput.value = state.pacingInterval;
 
@@ -1334,12 +1350,10 @@
     renderLogs();
     updateStatsUI();
 
-    // Browser status polling
     pollBrowserStatus();
     setInterval(pollBrowserStatus, 3000);
   }
 
-  // Boot on DOM ready
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
   } else {
