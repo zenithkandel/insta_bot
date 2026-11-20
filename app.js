@@ -38,7 +38,7 @@
     schedule: {
       startTime: '',
       deadline: '',
-      pacingInterval: 30,
+      pacingInterval: 0,
       maxVolume: 50,
       parallelWorkers: 3,
       retryAttempts: 2,
@@ -603,7 +603,7 @@
     state.isDispatching = false;
 
     const parallel = Math.max(1, Number(dom.parallelWorkersInput.value) || 3);
-    const interval = Math.max(5, Number(dom.pacingIntervalInput.value) || 30);
+    const interval = Math.max(0, Number(dom.pacingIntervalInput.value) || 0);
     const retries = Math.max(0, Number(dom.retryAttemptsInput.value) || 0);
 
     state.schedule.parallelWorkers = parallel;
@@ -637,7 +637,7 @@
           if (result.success) break;
           if (attempt < retries) {
             addLog(username, 'failed', `Attempt ${attempt + 1} failed: ${result.details}. Retrying...`);
-            await sleep(interval * 1000);
+            if (interval > 0) await sleep(interval * 1000);
           }
         }
 
@@ -653,8 +653,8 @@
         save();
         updateStatsUI();
 
-        // Pacing between sends
-        if (state.currentIndex < state.recipients.length && state.campaignStatus === 'running') {
+        // Pacing between sends (only if user specified an interval > 0)
+        if (interval > 0 && state.currentIndex < state.recipients.length && state.campaignStatus === 'running') {
           dom.currentRecipientBadge.textContent = `Pacing (${interval}s)...`;
           await sleep(interval * 1000);
         }

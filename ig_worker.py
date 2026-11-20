@@ -102,36 +102,50 @@ def inject_session(sessionid, csrftoken=""):
     driver = get_driver()
     ds_id = sessionid.split(":")[0] if ":" in sessionid else ""
 
-    # First visit instagram.com to establish domain cookies
-    driver.get('https://www.instagram.com/')
-    time.sleep(1)
+    # 1. Fast path: If the browser is already loaded on instagram.com with this session, reuse it in 0ms!
+    try:
+        current_url = driver.current_url or ""
+        if "instagram.com" in current_url:
+            cookies = {c['name']: c['value'] for c in driver.get_cookies()}
+            if cookies.get('sessionid') == sessionid:
+                log("inject_session: reusing active browser session (0ms)", {"ds_id": ds_id})
+                return driver
+    except Exception:
+        pass
 
-    # Add session cookies
-    driver.add_cookie({
-        'name': 'sessionid',
-        'value': sessionid,
-        'domain': '.instagram.com',
-        'path': '/',
-    })
-    if csrftoken:
-        driver.add_cookie({
-            'name': 'csrftoken',
-            'value': csrftoken,
+    # 2. Fast CDP cookie injection before navigating (no double reload, no artificial sleep!)
+    try:
+        driver.execute_cdp_cmd('Network.enable', {})
+        driver.execute_cdp_cmd('Network.setCookie', {
+            'name': 'sessionid',
+            'value': sessionid,
             'domain': '.instagram.com',
             'path': '/',
+            'secure': True,
+            'httpOnly': True
         })
-    if ds_id:
-        driver.add_cookie({
-            'name': 'ds_user_id',
-            'value': ds_id,
-            'domain': '.instagram.com',
-            'path': '/',
-        })
+        if csrftoken:
+            driver.execute_cdp_cmd('Network.setCookie', {
+                'name': 'csrftoken',
+                'value': csrftoken,
+                'domain': '.instagram.com',
+                'path': '/',
+                'secure': True
+            })
+        if ds_id:
+            driver.execute_cdp_cmd('Network.setCookie', {
+                'name': 'ds_user_id',
+                'value': ds_id,
+                'domain': '.instagram.com',
+                'path': '/',
+                'secure': True
+            })
+    except Exception as cdp_err:
+        log("inject_session: cdp note", {"err": str(cdp_err)})
 
-    # Reload to apply cookies
+    # Single direct page load
     driver.get('https://www.instagram.com/')
-    time.sleep(2)
-    log("inject_session: done", {"ds_id": ds_id, "csrftoken": csrftoken[:10] + "..." if csrftoken else "(none)"})
+    log("inject_session: done (fast single load)", {"ds_id": ds_id, "csrftoken": csrftoken[:10] + "..." if csrftoken else "(none)"})
     return driver
 
 # ──────────────────────────────────────────────
@@ -619,8 +633,8 @@ def cmd_batch_resolve(payload):
     finally:
         quit_driver()
 
-def cmd_fast_send(payload):
-    return cmd_send_dm(payload)
+def cmd_fast_send(payload, auto_quit=True):
+    return cmd_send_dm(payload, auto_quit=auto_quit)
 
 def cmd_validate(payload):
     sessionid = payload["sessionid"]
@@ -635,7 +649,7 @@ def cmd_resolve(payload):
     result = resolve_userid(sessionid, csrftoken, username)
     return result
 
-def cmd_send_dm(payload):
+def cmd_send_dm(payload, auto_quit=True):
     sessionid = payload["sessionid"]
     csrftoken = payload.get("csrftoken") or payload.get("csrfToken") or ""
     recipient = payload["recipient"]
@@ -649,7 +663,7 @@ def cmd_send_dm(payload):
         # Resolve recipient userId from profile page if not already provided
         if not recipient_uid:
             driver.get(f'https://www.instagram.com/{recipient}/')
-            time.sleep(2)
+            time.sleep(1)
             page_source = driver.page_source
             match = re.search(r'"profilePage_(\d+)"', page_source)
             if not match:
@@ -694,6 +708,66 @@ def cmd_send_dm(payload):
         import traceback
         traceback.print_exc(file=sys.stderr)
         return {"ok": False, "status": 0, "reason": str(e)}
+    finally:
+        if auto_quit:
+            quit_driver()
+
+def run_daemon(port=5055):
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+
+    class WorkerHandler(BaseHTTPRequestHandler):
+        def log_message(self, format, *args):
+            return  # Suppress default stdout noise
+
+        def do_POST(self):
+            content_len = int(self.headers.get('Content-Length', 0))
+            post_body = self.rfile.read(content_len)
+            try:
+                payload = json.loads(post_body.decode('utf-8'))
+            except Exception as e:
+                self.send_response(400)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"ok": False, "error": f"Invalid JSON: {str(e)}"}).encode('utf-8'))
+                return
+
+            cmd = self.path.lstrip('/')
+            if "sessionid" in payload:
+                payload["sessionid"] = (
+                    payload["sessionid"]
+                    .replace("%3A", ":")
+                    .replace("%3B", ";")
+                    .strip()
+                    .strip("'\"")
+                )
+
+            try:
+                if cmd in ("fast-send", "send-dm"):
+                    result = cmd_send_dm(payload, auto_quit=False)
+                elif cmd == "verify-session":
+                    result = cmd_verify_session(payload)
+                elif cmd == "batch-resolve":
+                    result = cmd_batch_resolve(payload)
+                elif cmd == "validate":
+                    result = cmd_validate(payload)
+                else:
+                    result = {"ok": False, "error": f"Unknown command: {cmd}"}
+            except Exception as e:
+                result = {"ok": False, "error": str(e)}
+
+            resp_data = json.dumps(result, ensure_ascii=False).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(resp_data)))
+            self.end_headers()
+            self.wfile.write(resp_data)
+
+    server = HTTPServer(('127.0.0.1', port), WorkerHandler)
+    log("daemon", {"status": "ready", "port": port})
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
     finally:
         quit_driver()
 
@@ -755,6 +829,11 @@ if __name__ == "__main__":
         sys.exit(1)
 
     command = sys.argv[1]
+    if command == "daemon":
+        port = int(sys.argv[2]) if len(sys.argv) > 2 else 5055
+        run_daemon(port)
+        sys.exit(0)
+
     payload = json.loads(sys.argv[2]) if len(sys.argv) > 2 else {}
 
     if "sessionid" in payload:

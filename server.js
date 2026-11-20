@@ -1,13 +1,14 @@
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
-import { execFile } from 'child_process';
+import { execFile, spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const PORT = process.env.PORT || 5050;
+const DAEMON_PORT = 5055;
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -17,6 +18,27 @@ const MIME_TYPES = {
   '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon'
 };
+
+// ──────────────────────────────────────────────
+// Persistent Python daemon worker for sub-second DMs
+// ──────────────────────────────────────────────
+let daemonProc = null;
+
+function ensureDaemon() {
+  const workerPath = path.join(__dirname, 'ig_worker.py');
+  daemonProc = spawn('python', [workerPath, 'daemon', String(DAEMON_PORT)], {
+    cwd: __dirname,
+    windowsHide: true,
+    stdio: 'ignore'
+  });
+  daemonProc.unref();
+}
+
+ensureDaemon();
+
+process.on('exit', () => {
+  try { daemonProc?.kill(); } catch {}
+});
 
 // ──────────────────────────────────────────────
 // Structured logger
@@ -29,15 +51,31 @@ function log(label, data) {
 }
 
 // ──────────────────────────────────────────────
-// Call Python worker for a single operation
+// Call Python worker (fast daemon with fallback to CLI)
 // ──────────────────────────────────────────────
-function callPython(command, payload) {
+async function callPython(command, payload) {
+  // 1. Fast route: Persistent daemon with warm browser (~200ms!)
+  try {
+    const res = await fetch(`http://127.0.0.1:${DAEMON_PORT}/${command}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(25000),
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    // Daemon not ready or restarting, fallback to CLI
+  }
+
+  // 2. Fallback route: one-shot CLI execution
   return new Promise((resolve, reject) => {
     const workerPath = path.join(__dirname, 'ig_worker.py');
     const arg = JSON.stringify(payload);
     execFile('python', [workerPath, command, arg], {
       cwd: __dirname,
-      timeout: 30000,
+      timeout: 35000,
       maxBuffer: 1024 * 1024,
       windowsHide: true,
     }, (err, stdout, stderr) => {
