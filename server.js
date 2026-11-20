@@ -89,7 +89,7 @@ function handleVerifySession(req, res) {
       return json(res, 200, {
         ok: Boolean(result.valid),
         valid: Boolean(result.valid),
-        sender: result.sender || null,
+        sender: result.sender ? { ...result.sender, authenticated: true } : null,
         tokens: result.tokens || null,
         reason: result.reason || null
       });

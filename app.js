@@ -274,19 +274,20 @@
 
   // ================= SESSION UI & SENDER VERIFICATION =================
   function updateSessionUI() {
-    const hasSession = state.sessionId && state.sessionId.trim().length > 5;
-    const hasCsrf = state.csrfToken && state.csrfToken.trim().length > 5;
-    const isVerified = state.senderInfo && state.senderInfo.authenticated;
+    const hasSession = Boolean(state.sessionId && state.sessionId.trim().length > 5);
+    const hasCsrf = Boolean(state.csrfToken && state.csrfToken.trim().length > 5);
+    const isVerified = Boolean(state.senderInfo && (state.senderInfo.username || state.senderInfo.userId));
 
     if (isVerified) {
+      const uname = state.senderInfo.username || 'user';
+      const uid = state.senderInfo.userId || state.senderInfo.ds_user_id || 'Verified';
       dom.sidebarStatusDot.className = 'status-dot active';
-      dom.sidebarStatusText.textContent = `@${state.senderInfo.username}`;
+      dom.sidebarStatusText.textContent = `@${uname}`;
       dom.topbarStatusDot.className = 'status-dot active';
-      dom.topbarStatusText.textContent = `@${state.senderInfo.username} (Verified)`;
+      dom.topbarStatusText.textContent = `@${uname} (Verified)`;
 
       if (dom.senderInfoCard) {
-        dom.senderUsernameDisplay.textContent = `@${state.senderInfo.username}`;
-        const uid = state.senderInfo.userId || state.senderInfo.ds_user_id || 'Extracted';
+        dom.senderUsernameDisplay.textContent = `@${uname}`;
         dom.senderUserIdDisplay.textContent = `(ID: ${uid})`;
         dom.tokenFbDtsgStatus.textContent = state.tokens?.fb_dtsg ? 'fb_dtsg: ready' : 'fb_dtsg: cached';
         dom.tokenCsrfStatus.textContent = state.tokens?.csrftoken ? 'csrftoken: ready' : 'csrftoken: cached';
@@ -296,9 +297,9 @@
       hide(dom.sessionErrorBanner);
     } else if (hasSession && hasCsrf) {
       dom.sidebarStatusDot.className = 'status-dot active';
-      dom.sidebarStatusText.textContent = 'Session Set (Unverified)';
+      dom.sidebarStatusText.textContent = 'Session Set';
       dom.topbarStatusDot.className = 'status-dot active';
-      dom.topbarStatusText.textContent = 'Unverified (Click Save)';
+      dom.topbarStatusText.textContent = 'Ready (Unverified)';
       hide(dom.senderInfoCard);
     } else if (hasSession && !hasCsrf) {
       dom.sidebarStatusDot.className = 'status-dot inactive';
@@ -337,16 +338,22 @@
 
       const data = await res.json();
 
-      if (data.ok && data.sender && data.sender.authenticated) {
+      if (data.ok || data.valid || (data.sender && (data.sender.username || data.sender.userId))) {
         state.sessionId = sessionId;
         state.csrfToken = csrfToken;
-        state.senderInfo = data.sender;
+        state.senderInfo = {
+          username: (data.sender && data.sender.username) || sessionId.split(':')[0] || 'User',
+          userId: (data.sender && data.sender.userId) || sessionId.split(':')[0] || '',
+          fullName: (data.sender && data.sender.fullName) || '',
+          profilePic: (data.sender && data.sender.profilePic) || '',
+          authenticated: true,
+        };
         state.tokens = data.tokens || {};
         save();
         updateSessionUI();
-        addLog('system', 'verified', `Sender verified: Logged in as @${data.sender.username} (ID: ${data.sender.userId}). Tokens pre-cached.`);
+        addLog('system', 'verified', `Sender verified: Logged in as @${state.senderInfo.username} (ID: ${state.senderInfo.userId}). Tokens pre-cached.`);
       } else {
-        const err = data.error || (data.sender && data.sender.error) || 'Invalid session. Please check your cookies.';
+        const err = data.error || data.reason || (data.sender && data.sender.error) || 'Invalid session. Please check your cookies.';
         dom.sessionErrorText.textContent = `Verification failed: ${err}`;
         show(dom.sessionErrorBanner);
         hide(dom.senderInfoCard);

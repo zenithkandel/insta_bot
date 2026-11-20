@@ -461,11 +461,30 @@ def cmd_verify_session(payload):
             m_u = re.search(r'"username":"([^"]+)","badge_count"', page_source)
             if m_u:
                 username = m_u.group(1)
+
+        # 1. Fetch web account settings to get real username
+        if not username or username.isdigit():
+            try:
+                acc_res = browser_fetch(driver, "https://www.instagram.com/api/v1/web/accounts/edit/web_form_data/", json.dumps({
+                    "method": "GET",
+                    "headers": {
+                        "X-IG-App-ID": IG_APP_ID,
+                        "Accept": "application/json"
+                    }
+                }))
+                if acc_res.get("status") == 200:
+                    acc_data = json.loads(acc_res.get("text", "{}"))
+                    fd = acc_data.get("form_data", {})
+                    if fd.get("username"):
+                        username = fd.get("username")
+                        full_name = fd.get("first_name") or username
+            except Exception as e:
+                log("cmd_verify_session: web_form_data note", {"err": str(e)})
         
         # Fetch own user info via browser fetch (same-origin, authenticated)
         if ds_id:
             try:
-                info_res = browser_fetch(driver, f"https://i.instagram.com/api/v1/users/{ds_id}/info/", json.dumps({
+                info_res = browser_fetch(driver, f"https://www.instagram.com/api/v1/users/{ds_id}/info/", json.dumps({
                     "method": "GET",
                     "headers": {
                         "X-IG-App-ID": IG_APP_ID,
@@ -491,7 +510,8 @@ def cmd_verify_session(payload):
                 "username": username,
                 "userId": ds_id or tokens.get("viewer_id"),
                 "fullName": full_name or username,
-                "profilePic": profile_pic
+                "profilePic": profile_pic,
+                "authenticated": True
             },
             "tokens": {
                 "fb_dtsg": tokens.get("fb_dtsg"),
