@@ -183,22 +183,69 @@ def resolve_userid_strict(sessionid, csrftoken, username, own_userid):
     return None, "Could not extract userId from profile page HTML"
 
 
-def send_dm_request(sessionid, csrftoken, user_id, recipient, text, tokens):
+def find_existing_thread(s, user_id, own_id, csrftoken):
     """
-    Send DM via Instagram's direct_v2 endpoint.
-    Returns (ok, status_code, body_dict, thread_id).
+    Look up the existing DM thread ID for a given user by querying
+    the direct inbox. Returns thread_id or None.
+    """
+    try:
+        r = s.get(
+            "https://i.instagram.com/api/v1/direct_v2/inbox/?visual_message_return_type=unseen&thread_message_limit=1&persistentBadging=true&limit=20",
+            headers={"X-IG-App-ID": IG_APP_ID, "X-CSRFToken": csrftoken, "Accept": "application/json"},
+            timeout=15,
+        )
+        if r.status_code != 200:
+            log("find_thread: inbox fetch failed", {"status": r.status_code})
+            return None
+
+        data = r.json()
+        threads = data.get("inbox", {}).get("threads", [])
+        target_id = str(user_id)
+        own_id_str = str(own_id)
+
+        for thread in threads:
+            users = thread.get("users", [])
+            user_ids = [str(u.get("pk", "")) for u in users]
+            # Match: thread has exactly the target user (and optionally self)
+            if target_id in user_ids and own_id_str in user_ids:
+                thread_id = thread.get("thread_id") or thread.get("thread_v2_id")
+                log("find_thread: found existing thread", {
+                    "threadId": thread_id,
+                    "users": user_ids,
+                })
+                return thread_id
+            # Also match if only target user is in the thread
+            if target_id in user_ids and len(user_ids) <= 2:
+                thread_id = thread.get("thread_id") or thread.get("thread_v2_id")
+                log("find_thread: found thread (target only)", {
+                    "threadId": thread_id,
+                    "users": user_ids,
+                })
+                return thread_id
+
+        log("find_thread: no existing thread found", {"totalThreads": len(threads)})
+        return None
+    except Exception as e:
+        log("find_thread: exception", {"error": str(e)})
+        return None
+
+
+def send_dm_to_thread(sessionid, csrftoken, thread_id, text, tokens):
+    """
+    Send a text message to an EXISTING thread via the add_thread_item endpoint.
+    This bypasses the message-request gate because the thread already exists.
     """
     client_context = str(uuid.uuid4())
     device_id = str(uuid.uuid4())
     ds_user_id = sessionid.split(":")[0] if ":" in sessionid else ""
 
+    # Use the thread item endpoint for existing threads
     form_data = {
-        "recipient_users": json.dumps([str(user_id)]),
-        "link_urls": json.dumps([]),
-        "text": text,
         "action": "send_item",
         "client_context": client_context,
         "mutation_token": client_context,
+        "text": text,
+        "link_urls": json.dumps([]),
         "_csrftoken": csrftoken,
         "_uuid": device_id,
         "device_id": device_id,
@@ -207,24 +254,22 @@ def send_dm_request(sessionid, csrftoken, user_id, recipient, text, tokens):
 
     cookie = "; ".join([
         f"sessionid={sessionid}",
+        f"csrftoken={csrftoken}",
         f"ds_user_id={ds_user_id}",
         f"ig_did={device_id}",
     ])
-    if csrftoken:
-        cookie = f"csrftoken={csrftoken}; " + cookie
 
     headers = {
         "Content-Type": "application/x-www-form-urlencoded",
         "Cookie": cookie,
         "User-Agent": IG_UA,
-        "X-IG-App-ID": tokens.get("app_id", IG_APP_ID),
+        "X-IG-App-ID": IG_APP_ID,
         "X-CSRFToken": csrftoken,
         "X-Requested-With": "XMLHttpRequest",
         "X-ASBD-ID": "129477",
         "Origin": "https://www.instagram.com",
-        "Referer": "https://www.instagram.com/",
+        "Referer": f"https://www.instagram.com/direct/t/{thread_id}/",
         "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "en-US,en;q=0.9",
     }
     if tokens.get("fb_dtsg"):
         headers["X-FB-DTSG"] = tokens["fb_dtsg"]
@@ -233,26 +278,23 @@ def send_dm_request(sessionid, csrftoken, user_id, recipient, text, tokens):
 
     s = requests.Session(impersonate="chrome120")
     s.cookies.set("sessionid", sessionid, domain=".instagram.com")
-    if csrftoken:
-        s.cookies.set("csrftoken", csrftoken, domain=".instagram.com")
+    s.cookies.set("csrftoken", csrftoken, domain=".instagram.com")
     s.cookies.set("ds_user_id", ds_user_id, domain=".instagram.com")
     s.cookies.set("ig_did", device_id, domain=".instagram.com")
 
-    r = s.post(
-        "https://i.instagram.com/api/v1/direct_v2/threads/broadcast/text/",
-        data=form_data,
-        headers=headers,
-        timeout=20,
-    )
+    # Use the thread-specific endpoint
+    url = f"https://i.instagram.com/api/v1/direct_v2/threads/{thread_id}/items/text/"
+    log("send_dm_to_thread: sending", {"url": url, "threadId": thread_id})
 
-    log("send_dm: response", {
+    r = s.post(url, data=form_data, headers=headers, timeout=20)
+
+    log("send_dm_to_thread: response", {
         "status": r.status_code,
         "contentType": r.headers.get("content-type", ""),
         "bodyLength": len(r.text),
         "bodyPreview": r.text[:500],
     })
 
-    # Parse response
     is_json = r.text.strip().startswith("{") or r.text.strip().startswith("[")
     if is_json:
         try:
@@ -260,20 +302,12 @@ def send_dm_request(sessionid, csrftoken, user_id, recipient, text, tokens):
         except:
             body = {"raw": r.text[:500]}
     else:
-        body = {"raw": r.text[:500], "contentType": r.headers.get("content-type", "")}
-        # Try to extract title from HTML
+        body = {"raw": r.text[:500]}
         m = re.search(r"<title[^>]*>([\s\S]*?)</title>", r.text, re.IGNORECASE)
         if m:
             body["htmlTitle"] = m.group(1).strip()
-        # Check for login page
-        if "not-logged-in" in r.text[:2000]:
-            body["htmlError"] = "Instagram returned login page (session may have expired during request)"
 
     ok = r.status_code >= 200 and r.status_code < 300
-    thread_id = None
-    if isinstance(body, dict) and ok:
-        thread_id = body.get("payload", {}).get("thread_id") or body.get("thread_id")
-
     return ok, r.status_code, body, thread_id
 
 
@@ -314,6 +348,7 @@ def cmd_validate(payload):
         "username": username,
         "userId": own_id,
         "has_fb_dtsg": bool(tokens.get("fb_dtsg")),
+        "csrftoken": csrftoken[:10] + "..." if csrftoken else "(none)",
     }
 
 
@@ -356,8 +391,15 @@ def cmd_send_dm(payload):
 
     log("send_dm: resolved", {"recipient": recipient, "userId": uid})
 
-    # Step 3: Send DM
-    ok, status, body, thread_id = send_dm_request(sessionid, csrftoken, uid, recipient, text, tokens)
+    # Step 3: Try existing thread first (bypasses message-request gate)
+    thread_id = find_existing_thread(s, uid, own_id, csrftoken)
+
+    if thread_id:
+        log("send_dm: using existing thread", {"threadId": thread_id})
+        ok, status, body, thread_id = send_dm_to_thread(sessionid, csrftoken, thread_id, text, tokens)
+    else:
+        log("send_dm: no existing thread, using broadcast endpoint")
+        ok, status, body, thread_id = send_dm_request(sessionid, csrftoken, uid, recipient, text, tokens)
 
     log("send_dm: result", {"ok": ok, "status": status, "threadId": thread_id})
 
@@ -398,62 +440,79 @@ def cmd_debug(payload):
             "tokens": {k: v[:20] + "..." for k, v in tokens.items()},
         }
 
-    # Send
-    client_context = str(uuid.uuid4())
-    device_id = str(uuid.uuid4())
-    ds_user_id = sessionid.split(":")[0] if ":" in sessionid else ""
+    # Try existing thread first (bypasses message-request gate)
+    thread_id = find_existing_thread(s, uid, own_id, csrftoken)
 
-    form_data = {
-        "recipient_users": json.dumps([str(uid)]),
-        "link_urls": json.dumps([]),
-        "text": text,
-        "action": "send_item",
-        "client_context": client_context,
-        "mutation_token": client_context,
-        "_csrftoken": csrftoken,
-        "_uuid": device_id,
-        "device_id": device_id,
-        "nav_chain": "[12_12w:1b2H2S:1b2H2S:1b2H2S:12_12w:1b2H2S:1b2H2S:1b2H2S:12_12w:1b2H2S:1b2H2S:1b2H2S:12_12w:1b2H2S:1b2H2S:1b2H2S:12_12w:1b2H2S:1b2H2S:1b2H2S]",
-    }
+    if thread_id:
+        log("debug: using existing thread", {"threadId": thread_id})
+        ok, status, body, thread_id = send_dm_to_thread(sessionid, csrftoken, thread_id, text, tokens)
+        # Build a mock response-like object for the return block below
+        class FakeResp:
+            def __init__(self, status, body):
+                self.status_code = status
+                self.headers = {"content-type": "application/json"}
+                self.text = json.dumps(body) if isinstance(body, dict) else str(body)
+        r2 = FakeResp(status, body)
+        form_data = {"text": text, "thread_id": thread_id}
+    else:
+        log("debug: no existing thread, using broadcast endpoint")
+        # Fall through to broadcast
+        client_context = str(uuid.uuid4())
+        device_id = str(uuid.uuid4())
+        ds_user_id = sessionid.split(":")[0] if ":" in sessionid else ""
 
-    cookie = "; ".join([
-        f"sessionid={sessionid}",
-        f"ds_user_id={ds_user_id}",
-        f"ig_did={device_id}",
-    ])
-    if csrftoken:
-        cookie = f"csrftoken={csrftoken}; " + cookie
+        form_data = {
+            "recipient_users": json.dumps([str(uid)]),
+            "link_urls": json.dumps([]),
+            "text": text,
+            "action": "send_item",
+            "client_context": client_context,
+            "mutation_token": client_context,
+            "_csrftoken": csrftoken,
+            "_uuid": device_id,
+            "device_id": device_id,
+            "nav_chain": "[12_12w:1b2H2S:1b2H2S:1b2H2S:12_12w:1b2H2S:1b2H2S:1b2H2S:12_12w:1b2H2S:1b2H2S:1b2H2S:12_12w:1b2H2S:1b2H2S:1b2H2S:12_12w:1b2H2S:1b2H2S:1b2H2S]",
+        }
 
-    headers = {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Cookie": cookie,
-        "User-Agent": IG_UA,
-        "X-IG-App-ID": tokens.get("app_id", IG_APP_ID),
-        "X-CSRFToken": csrftoken,
-        "X-Requested-With": "XMLHttpRequest",
-        "X-ASBD-ID": "129477",
-        "Origin": "https://www.instagram.com",
-        "Referer": "https://www.instagram.com/",
-        "Accept": "application/json, text/plain, */*",
-    }
-    if tokens.get("fb_dtsg"):
-        headers["X-FB-DTSG"] = tokens["fb_dtsg"]
-    if tokens.get("lsd"):
-        headers["X-FB-LSD"] = tokens["lsd"]
+        cookie = "; ".join([
+            f"sessionid={sessionid}",
+            f"ds_user_id={ds_user_id}",
+            f"ig_did={device_id}",
+        ])
+        if csrftoken:
+            cookie = f"csrftoken={csrftoken}; " + cookie
 
-    s2 = requests.Session(impersonate="chrome120")
-    s2.cookies.set("sessionid", sessionid, domain=".instagram.com")
-    if csrftoken:
-        s2.cookies.set("csrftoken", csrftoken, domain=".instagram.com")
-    s2.cookies.set("ds_user_id", ds_user_id, domain=".instagram.com")
-    s2.cookies.set("ig_did", device_id, domain=".instagram.com")
+        headers = {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Cookie": cookie,
+            "User-Agent": IG_UA,
+            "X-IG-App-ID": tokens.get("app_id", IG_APP_ID),
+            "X-CSRFToken": csrftoken,
+            "X-Requested-With": "XMLHttpRequest",
+            "X-ASBD-ID": "129477",
+            "Origin": "https://www.instagram.com",
+            "Referer": "https://www.instagram.com/",
+            "Accept": "application/json, text/plain, */*",
+        }
+        if tokens.get("fb_dtsg"):
+            headers["X-FB-DTSG"] = tokens["fb_dtsg"]
+        if tokens.get("lsd"):
+            headers["X-FB-LSD"] = tokens["lsd"]
 
-    r2 = s2.post(
-        "https://i.instagram.com/api/v1/direct_v2/threads/broadcast/text/",
-        data=form_data,
-        headers=headers,
-        timeout=20,
-    )
+        s2 = requests.Session(impersonate="chrome120")
+        s2.cookies.set("sessionid", sessionid, domain=".instagram.com")
+        if csrftoken:
+            s2.cookies.set("csrftoken", csrftoken, domain=".instagram.com")
+        s2.cookies.set("ds_user_id", ds_user_id, domain=".instagram.com")
+        s2.cookies.set("ig_did", device_id, domain=".instagram.com")
+
+        r2 = s2.post(
+            "https://i.instagram.com/api/v1/direct_v2/threads/broadcast/text/",
+            data=form_data,
+            headers=headers,
+            timeout=20,
+        )
+        thread_id = None
 
     return {
         "ok": r2.status_code >= 200 and r2.status_code < 300,
@@ -465,7 +524,9 @@ def cmd_debug(payload):
         "responseBody": r2.text[:500],
         "userId": uid,
         "ownUserId": own_id,
+        "threadId": thread_id,
         "tokens": {k: (v[:20] + "..." if isinstance(v, str) and len(v) > 20 else v) for k, v in tokens.items()},
+        "csrftoken": csrftoken[:10] + "..." if csrftoken else "(none)",
         "formFieldsSent": {k: (v[:50] + "..." if isinstance(v, str) and len(v) > 50 else v) for k, v in form_data.items()},
     }
 
