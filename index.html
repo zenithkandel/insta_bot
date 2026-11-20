@@ -92,8 +92,8 @@
               Session
             </span>
             <button id="btnSaveSession" class="btn btn-primary btn-sm">
-              <span class="iconify" data-icon="ph:floppy-disk-fill" data-width="14"></span>
-              Save
+              <span class="iconify" data-icon="ph:check-circle-fill" data-width="14"></span>
+              Save & Verify
             </button>
           </div>
           <div class="card-body space-y-3">
@@ -113,9 +113,33 @@
                 </div>
               </div>
             </div>
+
+            <!-- Verified Sender Info Banner -->
+            <div id="senderInfoCard" class="sender-info-box hidden">
+              <div class="sender-header-row">
+                <div class="sender-profile-chip">
+                  <span class="sender-pulse-dot"></span>
+                  <span class="sender-username" id="senderUsernameDisplay">@username</span>
+                  <span class="sender-userid" id="senderUserIdDisplay">(ID: 12345678)</span>
+                </div>
+                <span class="badge badge-success text-[10px]">Verified Session</span>
+              </div>
+              <div class="sender-tokens-row">
+                <span class="token-pill" id="tokenFbDtsgStatus">fb_dtsg: ready</span>
+                <span class="token-pill" id="tokenCsrfStatus">csrftoken: ready</span>
+                <span class="token-pill" id="tokenLsdStatus">lsd: ready</span>
+              </div>
+            </div>
+
+            <!-- Session Verification Error -->
+            <div id="sessionErrorBanner" class="session-error-box hidden">
+              <span class="iconify text-rose-500 shrink-0" data-icon="ph:warning-circle-fill" data-width="16"></span>
+              <span id="sessionErrorText">Session verification failed.</span>
+            </div>
+
             <p class="form-hint">
               <span class="iconify" data-icon="ph:info-fill" data-width="13"></span>
-              Find both in DevTools -> Application -> Cookies -> instagram.com
+              Find both in DevTools -> Application -> Cookies -> instagram.com. Verifying extracts sender username & tokens upfront.
             </p>
           </div>
         </section>
@@ -158,6 +182,10 @@
             </span>
             <div class="card-header-right">
               <span id="recipientCountBadge" class="badge badge-neutral">0</span>
+              <button id="btnVerifyRecipients" class="btn btn-secondary btn-xs" title="Verify existence and pre-cache numeric IDs for instant DM dispatch">
+                <span class="iconify" data-icon="ph:magnifying-glass-bold" data-width="13"></span>
+                Verify & Pre-fetch IDs
+              </button>
               <label class="btn btn-ghost btn-xs cursor-pointer">
                 <span class="iconify" data-icon="ph:upload-fill" data-width="13"></span>
                 Import
@@ -179,6 +207,25 @@
                 </button>
               </div>
               <span id="dedupNotice" class="text-[11px] text-zinc-500"></span>
+            </div>
+
+            <!-- Recipient Pre-fetch Verification Box -->
+            <div id="recipientsVerificationBox" class="recipients-verify-container hidden">
+              <div class="recipients-verify-header">
+                <span class="recipients-verify-title">
+                  <span class="iconify" data-icon="ph:identification-badge-fill" data-width="14"></span>
+                  Recipient Verification
+                </span>
+                <div class="flex items-center gap-2">
+                  <span id="verifiedSummaryPill" class="badge badge-neutral text-[10px]">0/0 verified</span>
+                  <button id="btnRemoveInvalidRecipients" class="btn btn-danger btn-xs hidden" title="Remove non-existent accounts from list">
+                    Remove Invalid
+                  </button>
+                </div>
+              </div>
+              <div id="verifiedRecipientsList" class="recipients-verified-list">
+                <!-- Dynamically populated -->
+              </div>
             </div>
           </div>
         </section>
@@ -328,6 +375,10 @@
                   Import
                   <input type="file" id="recipientsFileFull" accept=".txt,.csv" class="hidden" />
                 </button>
+                <button id="btnVerifyFull" class="btn btn-secondary btn-sm" title="Verify all profiles on Instagram and pre-cache IDs">
+                  <span class="iconify" data-icon="ph:magnifying-glass-bold" data-width="14"></span>
+                  Verify IDs
+                </button>
                 <button id="btnDedupeFull" class="btn btn-secondary btn-sm">
                   <span class="iconify" data-icon="ph:files-fill" data-width="14"></span>
                   Dedupe
@@ -354,6 +405,25 @@
               <div class="summary-item">
                 <span class="summary-label">Duplicates</span>
                 <span id="summaryDups" class="summary-value">0</span>
+              </div>
+            </div>
+
+            <!-- Recipient Verification Box (Full tab) -->
+            <div id="recipientsFullVerificationBox" class="recipients-verify-container hidden">
+              <div class="recipients-verify-header">
+                <span class="recipients-verify-title">
+                  <span class="iconify" data-icon="ph:identification-badge-fill" data-width="14"></span>
+                  Verified Recipients & Pre-cached Numeric IDs
+                </span>
+                <div class="flex items-center gap-2">
+                  <span id="verifiedSummaryPillFull" class="badge badge-neutral text-[10px]">0/0 verified</span>
+                  <button id="btnRemoveInvalidFull" class="btn btn-danger btn-xs hidden" title="Remove non-existent accounts">
+                    Remove Invalid
+                  </button>
+                </div>
+              </div>
+              <div id="verifiedRecipientsListFull" class="recipients-verified-list">
+                <!-- Dynamically populated -->
               </div>
             </div>
             <p class="form-hint">

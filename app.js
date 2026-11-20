@@ -20,12 +20,18 @@
     ACTIVE_TAB: 'insta_active_tab',
     PARALLEL: 'insta_parallel',
     RETRIES: 'insta_retries',
+    SENDER_INFO: 'insta_sender_info',
+    TOKENS: 'insta_tokens',
+    VERIFIED_RECIPIENTS: 'insta_verified_recipients',
   };
 
   // ================= STATE =================
   const state = {
     sessionId: '',
     csrfToken: '',
+    senderInfo: null,
+    tokens: null,
+    verifiedRecipients: {},
     recipients: [],
     rawRecipientsText: '',
     messageText: '',
@@ -58,9 +64,15 @@
       'sessionIdInput', 'csrfTokenInput', 'toggleSessionVisibility', 'toggleCsrfVisibility',
       'btnSaveSession', 'sidebarSessionCard', 'sidebarStatusDot', 'sidebarStatusText',
       'sidebarSessionBtn', 'topbarStatusDot', 'topbarStatusText',
+      'senderInfoCard', 'senderUsernameDisplay', 'senderUserIdDisplay',
+      'tokenFbDtsgStatus', 'tokenCsrfStatus', 'tokenLsdStatus',
+      'sessionErrorBanner', 'sessionErrorText',
       'recipientsTextarea', 'recipientsTextareaFull', 'recipientCountBadge',
       'recipientsFileInput', 'recipientsFileFull', 'btnDedupRecipients', 'btnClearRecipients',
       'btnDedupeFull', 'btnClearFull', 'btnImportFull',
+      'btnVerifyRecipients', 'btnVerifyFull',
+      'recipientsVerificationBox', 'verifiedRecipientsList', 'verifiedSummaryPill', 'btnRemoveInvalidRecipients',
+      'recipientsFullVerificationBox', 'verifiedRecipientsListFull', 'verifiedSummaryPillFull', 'btnRemoveInvalidFull',
       'summaryTotal', 'summaryValid', 'summaryInvalid', 'summaryDups', 'dedupNotice',
       'messageTextarea', 'btnInsertVariable', 'charCountBadge', 'livePreviewBox',
       'startTimeInput', 'deadlineInput', 'pacingIntervalInput', 'maxVolumeInput',
@@ -113,6 +125,15 @@
     const savedLogs = localStorage.getItem(K.LOGS);
     if (savedLogs) { try { state.logs = JSON.parse(savedLogs); } catch { state.logs = []; } }
 
+    const savedSender = localStorage.getItem(K.SENDER_INFO);
+    if (savedSender) { try { state.senderInfo = JSON.parse(savedSender); } catch {} }
+
+    const savedTokens = localStorage.getItem(K.TOKENS);
+    if (savedTokens) { try { state.tokens = JSON.parse(savedTokens); } catch {} }
+
+    const savedVerified = localStorage.getItem(K.VERIFIED_RECIPIENTS);
+    if (savedVerified) { try { state.verifiedRecipients = JSON.parse(savedVerified); } catch {} }
+
     // Populate form fields
     dom.sessionIdInput.value = state.sessionId;
     dom.csrfTokenInput.value = state.csrfToken;
@@ -128,6 +149,7 @@
 
     processRecipients(state.rawRecipientsText, false);
     updateSessionUI();
+    renderVerifiedRecipientsList();
   }
 
   function save() {
@@ -141,6 +163,14 @@
     localStorage.setItem(K.STATS, JSON.stringify(state.stats));
     localStorage.setItem(K.PARALLEL, String(state.schedule.parallelWorkers));
     localStorage.setItem(K.RETRIES, String(state.schedule.retryAttempts));
+
+    if (state.senderInfo) localStorage.setItem(K.SENDER_INFO, JSON.stringify(state.senderInfo));
+    else localStorage.removeItem(K.SENDER_INFO);
+
+    if (state.tokens) localStorage.setItem(K.TOKENS, JSON.stringify(state.tokens));
+    else localStorage.removeItem(K.TOKENS);
+
+    if (state.verifiedRecipients) localStorage.setItem(K.VERIFIED_RECIPIENTS, JSON.stringify(state.verifiedRecipients));
   }
 
   // ================= TAB SWITCHING =================
@@ -242,28 +272,282 @@
     dom.livePreviewBox.textContent = rendered || 'Type a message to see preview...';
   }
 
-  // ================= SESSION UI =================
+  // ================= SESSION UI & SENDER VERIFICATION =================
   function updateSessionUI() {
     const hasSession = state.sessionId && state.sessionId.trim().length > 5;
     const hasCsrf = state.csrfToken && state.csrfToken.trim().length > 5;
+    const isVerified = state.senderInfo && state.senderInfo.authenticated;
 
-    // Sidebar
-    if (hasSession && hasCsrf) {
+    if (isVerified) {
       dom.sidebarStatusDot.className = 'status-dot active';
-      dom.sidebarStatusText.textContent = 'Session Ready';
+      dom.sidebarStatusText.textContent = `@${state.senderInfo.username}`;
       dom.topbarStatusDot.className = 'status-dot active';
-      dom.topbarStatusText.textContent = 'Ready';
+      dom.topbarStatusText.textContent = `@${state.senderInfo.username} (Verified)`;
+
+      if (dom.senderInfoCard) {
+        dom.senderUsernameDisplay.textContent = `@${state.senderInfo.username}`;
+        const uid = state.senderInfo.userId || state.senderInfo.ds_user_id || 'Extracted';
+        dom.senderUserIdDisplay.textContent = `(ID: ${uid})`;
+        dom.tokenFbDtsgStatus.textContent = state.tokens?.fb_dtsg ? 'fb_dtsg: ready' : 'fb_dtsg: cached';
+        dom.tokenCsrfStatus.textContent = state.tokens?.csrftoken ? 'csrftoken: ready' : 'csrftoken: cached';
+        dom.tokenLsdStatus.textContent = state.tokens?.lsd ? 'lsd: ready' : 'lsd: cached';
+        show(dom.senderInfoCard);
+      }
+      hide(dom.sessionErrorBanner);
+    } else if (hasSession && hasCsrf) {
+      dom.sidebarStatusDot.className = 'status-dot active';
+      dom.sidebarStatusText.textContent = 'Session Set (Unverified)';
+      dom.topbarStatusDot.className = 'status-dot active';
+      dom.topbarStatusText.textContent = 'Unverified (Click Save)';
+      hide(dom.senderInfoCard);
     } else if (hasSession && !hasCsrf) {
       dom.sidebarStatusDot.className = 'status-dot inactive';
       dom.sidebarStatusText.textContent = 'CSRF Missing';
       dom.topbarStatusDot.className = 'status-dot inactive';
       dom.topbarStatusText.textContent = 'CSRF Missing';
+      hide(dom.senderInfoCard);
     } else {
       dom.sidebarStatusDot.className = 'status-dot';
       dom.sidebarStatusText.textContent = 'No Session';
       dom.topbarStatusDot.className = 'status-dot';
       dom.topbarStatusText.textContent = 'No Session';
+      hide(dom.senderInfoCard);
     }
+  }
+
+  async function verifySession() {
+    const sessionId = dom.sessionIdInput.value.trim();
+    const csrfToken = dom.csrfTokenInput.value.trim();
+
+    if (!sessionId) {
+      alert('Please enter a sessionid cookie value first.');
+      return;
+    }
+
+    dom.btnSaveSession.disabled = true;
+    dom.btnSaveSession.innerHTML = `<span class="iconify" data-icon="ph:spinner-gap-bold" data-width="14" style="animation:spin 1s linear infinite"></span> Verifying...`;
+    hide(dom.sessionErrorBanner);
+
+    try {
+      const res = await fetch('/api/verify-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionid: sessionId, csrftoken: csrfToken }),
+      });
+
+      const data = await res.json();
+
+      if (data.ok && data.sender && data.sender.authenticated) {
+        state.sessionId = sessionId;
+        state.csrfToken = csrfToken;
+        state.senderInfo = data.sender;
+        state.tokens = data.tokens || {};
+        save();
+        updateSessionUI();
+        addLog('system', 'verified', `Sender verified: Logged in as @${data.sender.username} (ID: ${data.sender.userId}). Tokens pre-cached.`);
+      } else {
+        const err = data.error || (data.sender && data.sender.error) || 'Invalid session. Please check your cookies.';
+        dom.sessionErrorText.textContent = `Verification failed: ${err}`;
+        show(dom.sessionErrorBanner);
+        hide(dom.senderInfoCard);
+        state.senderInfo = null;
+        state.tokens = null;
+        save();
+        updateSessionUI();
+        addLog('system', 'failed', `Session verification failed: ${err}`);
+      }
+    } catch (err) {
+      dom.sessionErrorText.textContent = `Network error: ${err.message}`;
+      show(dom.sessionErrorBanner);
+      hide(dom.senderInfoCard);
+      addLog('system', 'failed', `Session verification network error: ${err.message}`);
+    } finally {
+      dom.btnSaveSession.disabled = false;
+      dom.btnSaveSession.innerHTML = `<span class="iconify" data-icon="ph:check-circle-fill" data-width="14"></span> Save & Verify`;
+    }
+  }
+
+  // ================= RECIPIENT VERIFICATION & PRE-CACHING =================
+  async function batchResolveRecipients() {
+    if (!state.recipients || state.recipients.length === 0) {
+      alert('Please add at least one recipient first.');
+      return;
+    }
+    if (!state.sessionId) {
+      alert('Please enter and save your Instagram session first.');
+      return;
+    }
+
+    const buttons = [dom.btnVerifyRecipients, dom.btnVerifyFull].filter(Boolean);
+    buttons.forEach(b => {
+      b.disabled = true;
+      b.innerHTML = `<span class="iconify" data-icon="ph:spinner-gap-bold" data-width="13" style="animation:spin 1s linear infinite"></span> Verifying...`;
+    });
+
+    show(dom.recipientsVerificationBox);
+    show(dom.recipientsFullVerificationBox);
+
+    if (dom.verifiedRecipientsList) {
+      dom.verifiedRecipientsList.innerHTML = `<div class="p-3 text-xs text-zinc-500 flex items-center gap-2"><span class="iconify text-primary" data-icon="ph:spinner-gap-bold" data-width="14" style="animation:spin 1s linear infinite"></span> Verifying ${state.recipients.length} profiles and pre-fetching numeric IDs...</div>`;
+    }
+    if (dom.verifiedRecipientsListFull) {
+      dom.verifiedRecipientsListFull.innerHTML = `<div class="p-3 text-xs text-zinc-500 flex items-center gap-2"><span class="iconify text-primary" data-icon="ph:spinner-gap-bold" data-width="14" style="animation:spin 1s linear infinite"></span> Verifying ${state.recipients.length} profiles and pre-fetching numeric IDs...</div>`;
+    }
+
+    addLog('system', 'running', `Verifying ${state.recipients.length} recipient handles on Instagram...`);
+
+    try {
+      const res = await fetch('/api/resolve-recipients', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionid: state.sessionId,
+          csrftoken: state.csrfToken,
+          usernames: state.recipients,
+        }),
+      });
+
+      const data = await res.json();
+      if (data.ok && Array.isArray(data.results)) {
+        data.results.forEach(item => {
+          state.verifiedRecipients[item.username.toLowerCase()] = {
+            username: item.username,
+            exists: !!item.exists,
+            userId: item.userId || null,
+            isPrivate: !!item.isPrivate,
+            fullName: item.fullName || '',
+            profilePic: item.profilePic || '',
+            checkedAt: Date.now(),
+          };
+        });
+
+        save();
+        renderVerifiedRecipientsList();
+
+        const validCount = data.results.filter(r => r.exists).length;
+        const invalidCount = data.results.filter(r => !r.exists).length;
+        addLog('system', 'completed', `Verified ${data.results.length} recipients: ${validCount} valid & pre-cached (${invalidCount} invalid/not found).`);
+      } else {
+        const err = data.error || 'Failed to verify recipients.';
+        alert(`Verification error: ${err}`);
+        addLog('system', 'failed', `Recipient verification failed: ${err}`);
+      }
+    } catch (err) {
+      alert(`Network error: ${err.message}`);
+      addLog('system', 'failed', `Recipient verification network error: ${err.message}`);
+    } finally {
+      buttons.forEach(b => {
+        b.disabled = false;
+        b.innerHTML = `<span class="iconify" data-icon="ph:magnifying-glass-bold" data-width="13"></span> Verify & Pre-fetch IDs`;
+      });
+      if (dom.btnVerifyFull) {
+        dom.btnVerifyFull.innerHTML = `<span class="iconify" data-icon="ph:magnifying-glass-bold" data-width="14"></span> Verify IDs`;
+      }
+    }
+  }
+
+  function renderVerifiedRecipientsList() {
+    const list = state.recipients || [];
+    if (list.length === 0) {
+      hide(dom.recipientsVerificationBox);
+      hide(dom.recipientsFullVerificationBox);
+      return;
+    }
+
+    const hasAnyVerified = list.some(h => state.verifiedRecipients[h.toLowerCase()]);
+    if (!hasAnyVerified) {
+      hide(dom.recipientsVerificationBox);
+      hide(dom.recipientsFullVerificationBox);
+      return;
+    }
+
+    show(dom.recipientsVerificationBox);
+    show(dom.recipientsFullVerificationBox);
+
+    let validCount = 0;
+    let invalidCount = 0;
+
+    const html = list.map(handle => {
+      const v = state.verifiedRecipients[handle.toLowerCase()];
+      if (!v) {
+        return `
+          <div class="recipient-verify-item">
+            <div class="recipient-item-left">
+              <span class="iconify text-zinc-400" data-icon="ph:user" data-width="14"></span>
+              <span class="recipient-item-handle">@${escapeHtml(handle)}</span>
+            </div>
+            <div class="recipient-item-right">
+              <span class="badge badge-idle text-[10px]">Unchecked</span>
+            </div>
+          </div>`;
+      }
+
+      if (v.exists) {
+        validCount++;
+        return `
+          <div class="recipient-verify-item verified">
+            <div class="recipient-item-left">
+              <span class="iconify text-emerald-500 shrink-0" data-icon="ph:check-circle-fill" data-width="14"></span>
+              <span class="recipient-item-handle">@${escapeHtml(v.username || handle)}</span>
+              <span class="recipient-item-id font-mono">ID: ${escapeHtml(v.userId || 'Pre-cached')}</span>
+              ${v.fullName ? `<span class="text-[11px] text-zinc-400">(${escapeHtml(v.fullName)})</span>` : ''}
+            </div>
+            <div class="recipient-item-right">
+              ${v.isPrivate ? '<span class="badge badge-neutral text-[10px]">Private</span>' : '<span class="badge badge-neutral text-[10px]">Public</span>'}
+              <span class="badge badge-success text-[10px]">Ready</span>
+            </div>
+          </div>`;
+      } else {
+        invalidCount++;
+        return `
+          <div class="recipient-verify-item invalid">
+            <div class="recipient-item-left">
+              <span class="iconify text-rose-500 shrink-0" data-icon="ph:x-circle-fill" data-width="14"></span>
+              <span class="recipient-item-handle text-rose-700">@${escapeHtml(handle)}</span>
+              <span class="text-[11px] text-rose-500 font-mono">Profile not found</span>
+            </div>
+            <div class="recipient-item-right">
+              <span class="badge badge-stopped text-[10px]">Not Found</span>
+            </div>
+          </div>`;
+      }
+    }).join('');
+
+    if (dom.verifiedRecipientsList) dom.verifiedRecipientsList.innerHTML = html;
+    if (dom.verifiedRecipientsListFull) dom.verifiedRecipientsListFull.innerHTML = html;
+
+    const summary = `${validCount}/${list.length} verified${invalidCount > 0 ? ` (${invalidCount} invalid)` : ''}`;
+    if (dom.verifiedSummaryPill) dom.verifiedSummaryPill.textContent = summary;
+    if (dom.verifiedSummaryPillFull) dom.verifiedSummaryPillFull.textContent = summary;
+
+    [dom.btnRemoveInvalidRecipients, dom.btnRemoveInvalidFull].forEach(btn => {
+      if (!btn) return;
+      if (invalidCount > 0) {
+        show(btn);
+        btn.textContent = `Remove Invalid (${invalidCount})`;
+      } else {
+        hide(btn);
+      }
+    });
+  }
+
+  function removeInvalidRecipients() {
+    const beforeCount = state.recipients.length;
+    const filtered = state.recipients.filter(h => {
+      const v = state.verifiedRecipients[h.toLowerCase()];
+      return !v || v.exists !== false;
+    });
+
+    const removedCount = beforeCount - filtered.length;
+    if (removedCount === 0) return;
+
+    state.recipients = filtered;
+    state.rawRecipientsText = filtered.join('\n');
+    dom.recipientsTextarea.value = state.rawRecipientsText;
+    dom.recipientsTextareaFull.value = state.rawRecipientsText;
+    processRecipients(state.rawRecipientsText, true);
+    renderVerifiedRecipientsList();
+    addLog('system', 'completed', `Removed ${removedCount} non-existent handle(s) from campaign.`);
   }
 
   // ================= FEASIBILITY =================
@@ -384,22 +668,36 @@
 
   async function sendOne(username, message) {
     try {
+      // Look up pre-cached recipient numeric ID
+      const cached = state.verifiedRecipients[username.toLowerCase()];
+      const recipientUserId = (cached && cached.exists && cached.userId) ? cached.userId : null;
+
+      const payload = {
+        sessionid: state.sessionId,
+        csrfToken: state.csrfToken,
+        recipient: username,
+        text: message,
+      };
+
+      if (recipientUserId) {
+        payload.recipientUserId = recipientUserId;
+      }
+      if (state.tokens) {
+        payload.tokens = state.tokens;
+      }
+
       const res = await fetch('/api/send-dm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionid: state.sessionId,
-          csrfToken: state.csrfToken,
-          recipient: username,
-          text: message,
-        }),
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json();
 
       if (data.ok) {
         const threadId = data.meta?.threadId || data.body?.thread_id || 'new';
-        return { success: true, details: `Sent to @${username} (thread: ${threadId})` };
+        const fastTag = recipientUserId ? ' ⚡[fast-send]' : '';
+        return { success: true, details: `Sent to @${username} (thread: ${threadId})${fastTag}` };
       }
 
       const igBody = data.body || {};
@@ -563,6 +861,7 @@
     updateSessionUI();
     updateMessagePreview();
     evaluateFeasibility();
+    renderVerifiedRecipientsList();
     updateCampaignControlsUI();
     updateStatsUI();
     renderLogs();
@@ -600,12 +899,17 @@
       dom.sidebarSessionBtn.addEventListener('click', () => switchTab('campaign'));
     }
 
-    // Session
-    dom.btnSaveSession.addEventListener('click', () => {
-      state.sessionId = dom.sessionIdInput.value.trim();
-      state.csrfToken = dom.csrfTokenInput.value.trim();
-      save();
-      updateSessionUI();
+    // Session save & upfront verification
+    dom.btnSaveSession.addEventListener('click', verifySession);
+
+    // Recipient upfront verification
+    [dom.btnVerifyRecipients, dom.btnVerifyFull].forEach(btn => {
+      if (btn) btn.addEventListener('click', batchResolveRecipients);
+    });
+
+    // Remove invalid/non-existent recipients
+    [dom.btnRemoveInvalidRecipients, dom.btnRemoveInvalidFull].forEach(btn => {
+      if (btn) btn.addEventListener('click', removeInvalidRecipients);
     });
 
     [dom.toggleSessionVisibility, dom.toggleCsrfVisibility].forEach((btn, i) => {

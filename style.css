@@ -670,6 +670,156 @@ body {
 .doc-faq-q { font-size: 12px; font-weight: 600; color: var(--text); }
 .doc-faq-a { font-size: 12px; color: var(--text-2); line-height: 1.6; }
 
+/* ============ SENDER & RECIPIENT VERIFICATION ============ */
+.sender-info-box {
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--success-light);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sender-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sender-profile-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sender-pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
+  flex-shrink: 0;
+}
+
+.sender-username {
+  font-weight: 600;
+  font-size: 13px;
+  color: #065f46;
+}
+
+.sender-userid {
+  font-size: 11px;
+  color: #047857;
+  font-family: var(--font-mono, monospace);
+}
+
+.sender-tokens-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 11px;
+  font-family: var(--font-mono, monospace);
+  color: #047857;
+}
+
+.token-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.session-error-box {
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--danger-light);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  color: var(--danger);
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Recipient Verification Container */
+.recipients-verify-container {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.recipients-verify-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.recipients-verify-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.recipients-verified-list {
+  max-height: 180px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-right: 4px;
+}
+
+.recipient-verify-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  font-size: 12px;
+  transition: border-color 0.15s;
+}
+
+.recipient-verify-item.verified {
+  border-left: 3px solid var(--success);
+}
+
+.recipient-verify-item.invalid {
+  border-left: 3px solid var(--danger);
+  background: #fffafa;
+}
+
+.recipient-item-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.recipient-item-handle {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.recipient-item-id {
+  font-size: 11px;
+  color: var(--text-3);
+  font-family: var(--font-mono, monospace);
+}
+
+.recipient-item-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 /* ============ UTILITY ============ */
 .hidden { display: none !important; }
 .font-mono { font-family: 'SF Mono', 'Consolas', 'Monaco', monospace !important; }

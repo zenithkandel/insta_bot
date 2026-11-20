@@ -437,6 +437,209 @@ def send_dm_via_browser(driver, thread_fbid, recipient_igids, text, tokens):
 # Commands
 # ──────────────────────────────────────────────
 
+def cmd_verify_session(payload):
+    sessionid = payload["sessionid"]
+    csrftoken = payload.get("csrftoken") or payload.get("csrfToken") or ""
+    ds_id = sessionid.split(":")[0] if ":" in sessionid else ""
+    try:
+        driver = inject_session(sessionid, csrftoken)
+        page_source = driver.page_source
+        if 'not-logged-in' in page_source[:5000]:
+            return {"valid": False, "reason": "Session rejected — Instagram returned login page."}
+        
+        tokens = extract_tokens_from_browser(driver)
+        
+        # Try to extract sender username
+        username = None
+        full_name = None
+        profile_pic = None
+
+        m_viewer = re.search(r'"viewer":\{"id":"\d+","username":"([^"]+)"\}', page_source)
+        if m_viewer:
+            username = m_viewer.group(1)
+        if not username:
+            m_u = re.search(r'"username":"([^"]+)","badge_count"', page_source)
+            if m_u:
+                username = m_u.group(1)
+        
+        # Fetch own user info via browser fetch (same-origin, authenticated)
+        if ds_id:
+            try:
+                info_res = browser_fetch(driver, f"https://i.instagram.com/api/v1/users/{ds_id}/info/", json.dumps({
+                    "method": "GET",
+                    "headers": {
+                        "X-IG-App-ID": IG_APP_ID,
+                        "Accept": "application/json"
+                    }
+                }))
+                if info_res.get("status") == 200:
+                    info_data = json.loads(info_res.get("text", "{}"))
+                    u_obj = info_data.get("user", {})
+                    if u_obj.get("username"):
+                        username = u_obj.get("username")
+                    full_name = u_obj.get("full_name")
+                    profile_pic = u_obj.get("profile_pic_url")
+            except Exception as e:
+                log("cmd_verify_session: user info fetch note", {"err": str(e)})
+
+        if not username:
+            username = tokens.get("viewer_id") or ds_id or "authenticated_user"
+
+        return {
+            "valid": True,
+            "sender": {
+                "username": username,
+                "userId": ds_id or tokens.get("viewer_id"),
+                "fullName": full_name or username,
+                "profilePic": profile_pic
+            },
+            "tokens": {
+                "fb_dtsg": tokens.get("fb_dtsg"),
+                "lsd": tokens.get("lsd"),
+                "csrftoken": tokens.get("csrftoken") or csrftoken,
+                "jazoest": tokens.get("jazoest"),
+                "rev": tokens.get("rev", "1055532492"),
+                "viewer_id": tokens.get("viewer_id") or ds_id
+            }
+        }
+    except Exception as e:
+        return {"valid": False, "reason": f"Browser verification error: {str(e)}"}
+    finally:
+        quit_driver()
+
+def cmd_batch_resolve(payload):
+    sessionid = payload["sessionid"]
+    csrftoken = payload.get("csrftoken") or payload.get("csrfToken") or ""
+    recipients = payload.get("recipients") or payload.get("usernames") or []
+    
+    if not recipients:
+        return {"ok": True, "results": []}
+
+    try:
+        driver = inject_session(sessionid, csrftoken)
+        results = []
+
+        for raw_u in recipients:
+            u = str(raw_u).strip().lstrip('@')
+            if not u:
+                continue
+
+            resolved_uid = None
+            is_private = False
+            full_name = ""
+            profile_pic = ""
+
+            # Attempt 1: fast search API via browser fetch (~150ms per user)
+            try:
+                search_url = f"https://www.instagram.com/api/v1/web/search/topsearch/?context=blended&query={u}&include_reel=false"
+                sr = browser_fetch(driver, search_url, json.dumps({
+                    "method": "GET",
+                    "headers": {
+                        "X-IG-App-ID": IG_APP_ID,
+                        "Accept": "application/json"
+                    }
+                }))
+                if sr.get("status") == 200:
+                    s_data = json.loads(sr.get("text", "{}"))
+                    for item in s_data.get("users", []):
+                        usr = item.get("user", {})
+                        if usr.get("username", "").lower() == u.lower():
+                            resolved_uid = str(usr.get("pk", ""))
+                            is_private = bool(usr.get("is_private"))
+                            full_name = usr.get("full_name", "")
+                            profile_pic = usr.get("profile_pic_url", "")
+                            break
+            except Exception as search_err:
+                log("topsearch note", {"u": u, "err": str(search_err)})
+
+            # Attempt 2 (fallback): navigate to user profile page
+            if not resolved_uid:
+                try:
+                    driver.get(f'https://www.instagram.com/{u}/')
+                    time.sleep(1.2)
+                    title = driver.title
+                    html = driver.page_source
+
+                    if "Profile isn't available" in title or "Page Not Found" in title or "Sorry, this page isn't available." in html:
+                        results.append({
+                            "username": u,
+                            "exists": False,
+                            "userId": None,
+                            "error": "Profile not found or disabled"
+                        })
+                        continue
+
+                    match = re.search(r'"profilePage_(\d+)"', html) or re.search(r'"user_id":"(\d+)"', html) or re.search(r'"pk":"(\d+)"', html)
+                    if match:
+                        resolved_uid = match.group(1)
+                    is_private = '"is_private":true' in html
+                except Exception as page_err:
+                    log("page lookup note", {"u": u, "err": str(page_err)})
+
+            if resolved_uid:
+                results.append({
+                    "username": u,
+                    "exists": True,
+                    "userId": resolved_uid,
+                    "isPrivate": is_private,
+                    "fullName": full_name or u,
+                    "profilePic": profile_pic
+                })
+            else:
+                results.append({
+                    "username": u,
+                    "exists": False,
+                    "userId": None,
+                    "error": "Could not extract user ID"
+                })
+
+        return {"ok": True, "results": results}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "results": []}
+    finally:
+        quit_driver()
+
+def cmd_fast_send(payload):
+    sessionid = payload["sessionid"]
+    csrftoken = payload.get("csrftoken") or payload.get("csrfToken") or ""
+    recipient = payload["recipient"]
+    recipient_uid = payload.get("recipientUserId") or payload.get("userId")
+    text = payload["text"]
+    pre_tokens = payload.get("tokens") or {}
+
+    if not recipient_uid:
+        return cmd_send_dm(payload)
+
+    try:
+        driver = inject_session(sessionid, csrftoken)
+        tokens = pre_tokens if (pre_tokens.get("fb_dtsg") and pre_tokens.get("csrftoken")) else extract_tokens_from_browser(driver)
+
+        recipient_igids = [str(recipient_uid)]
+        thread_fbid = payload.get("threadId")
+
+        if not thread_fbid:
+            thread_fbid, interop_fbid, _ = find_thread_fbid(driver, recipient_uid, csrftoken)
+            if interop_fbid:
+                recipient_igids = [str(interop_fbid)]
+
+        ok, status, body, errors, otid, tid = send_dm_via_browser(driver, thread_fbid, recipient_igids, text, tokens)
+
+        return {
+            "ok": ok,
+            "status": status,
+            "body": body,
+            "threadId": tid,
+            "userId": str(recipient_uid),
+            "errors": errors,
+            "offlineThreadingId": otid
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        return {"ok": False, "status": 0, "reason": str(e)}
+    finally:
+        quit_driver()
+
 def cmd_validate(payload):
     sessionid = payload["sessionid"]
     csrftoken = payload.get("csrftoken", "")
@@ -568,10 +771,16 @@ if __name__ == "__main__":
     try:
         if command == "validate":
             result = cmd_validate(payload)
+        elif command == "verify-session":
+            result = cmd_verify_session(payload)
         elif command == "resolve":
             result = cmd_resolve(payload)
+        elif command == "batch-resolve":
+            result = cmd_batch_resolve(payload)
         elif command == "send-dm":
             result = cmd_send_dm(payload)
+        elif command == "fast-send":
+            result = cmd_fast_send(payload)
         elif command == "debug":
             result = cmd_debug(payload)
         else:

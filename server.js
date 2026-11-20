@@ -66,6 +66,74 @@ function callPython(command, payload) {
 }
 
 // ──────────────────────────────────────────────
+// Verify Session & Extract Sender Info
+// ──────────────────────────────────────────────
+function handleVerifySession(req, res) {
+  let body = '';
+  req.on('data', chunk => { body += chunk; });
+  req.on('end', async () => {
+    let payload;
+    try { payload = JSON.parse(body); }
+    catch { return json(res, 400, { ok: false, error: 'Invalid JSON body' }); }
+
+    const { sessionid: rawSessionid } = payload;
+    const csrfToken = (payload.csrfToken || payload.csrftoken || '').trim();
+    if (!rawSessionid) return json(res, 400, { ok: false, error: 'Missing sessionid' });
+
+    const sessionid = rawSessionid.replace(/%3A/gi, ':').replace(/%3B/gi, ';').trim();
+    log('─── VERIFY SESSION REQUEST ───', { dsUserId: sessionid.split(':')[0] });
+
+    try {
+      const result = await callPython('verify-session', { sessionid, csrfToken });
+      log('VERIFY SESSION RESULT', result);
+      return json(res, 200, {
+        ok: Boolean(result.valid),
+        valid: Boolean(result.valid),
+        sender: result.sender || null,
+        tokens: result.tokens || null,
+        reason: result.reason || null
+      });
+    } catch (err) {
+      log('X VERIFY SESSION ERROR', { message: err.message });
+      return json(res, 500, { ok: false, error: err.message });
+    }
+  });
+}
+
+// ──────────────────────────────────────────────
+// Batch Resolve Recipients (Pre-verify existence & cache userIds)
+// ──────────────────────────────────────────────
+function handleResolveRecipients(req, res) {
+  let body = '';
+  req.on('data', chunk => { body += chunk; });
+  req.on('end', async () => {
+    let payload;
+    try { payload = JSON.parse(body); }
+    catch { return json(res, 400, { ok: false, error: 'Invalid JSON body' }); }
+
+    const rawSessionid = payload.sessionid;
+    const recipients = payload.recipients || payload.usernames;
+    const csrfToken = (payload.csrfToken || payload.csrftoken || '').trim();
+    if (!rawSessionid) return json(res, 400, { ok: false, error: 'Missing sessionid' });
+    if (!recipients || !Array.isArray(recipients) || recipients.length === 0) {
+      return json(res, 400, { ok: false, error: 'No recipients provided' });
+    }
+
+    const sessionid = rawSessionid.replace(/%3A/gi, ':').replace(/%3B/gi, ';').trim();
+    log('─── BATCH RESOLVE REQUEST ───', { total: recipients.length, sample: recipients.slice(0, 3) });
+
+    try {
+      const result = await callPython('batch-resolve', { sessionid, csrfToken, recipients });
+      log('BATCH RESOLVE RESULT', { count: (result.results || []).length });
+      return json(res, 200, result);
+    } catch (err) {
+      log('X BATCH RESOLVE ERROR', { message: err.message });
+      return json(res, 500, { ok: false, error: err.message });
+    }
+  });
+}
+
+// ──────────────────────────────────────────────
 // Main proxy handler
 // ──────────────────────────────────────────────
 function proxyToInstagram(req, res) {
@@ -76,7 +144,7 @@ function proxyToInstagram(req, res) {
     try { payload = JSON.parse(body); }
     catch { return json(res, 400, { ok: false, error: 'Invalid JSON body' }); }
 
-    const { sessionid: rawSessionid, recipient, text } = payload;
+    const { sessionid: rawSessionid, recipient, text, recipientUserId } = payload;
     const csrfToken = (payload.csrfToken || '').trim();
 
     if (!rawSessionid)  return json(res, 400, { ok: false, error: 'Missing sessionid' });
@@ -85,7 +153,49 @@ function proxyToInstagram(req, res) {
 
     const sessionid = rawSessionid.replace(/%3A/gi, ':').replace(/%3B/gi, ';').trim();
 
-    log('─── NEW DM REQUEST ───', {
+    // ── FAST PATH: recipientUserId is already known from upfront verification ──
+    if (recipientUserId) {
+      log('⚡ FAST DISPATCH (Pre-cached recipientUserId)', {
+        recipient,
+        recipientUserId,
+        textPreview: text.substring(0, 50),
+      });
+
+      try {
+        const result = await callPython('fast-send', {
+          sessionid,
+          csrfToken,
+          recipient,
+          recipientUserId,
+          text,
+          tokens: payload.tokens
+        });
+
+        log('FAST SEND RESULT', {
+          ok: result.ok,
+          status: result.status,
+          userId: result.userId,
+          threadId: result.threadId
+        });
+
+        return json(res, 200, {
+          ok: result.ok,
+          status: result.status,
+          body: result.body,
+          meta: {
+            recipient,
+            userId: result.userId || recipientUserId,
+            threadId: result.threadId,
+            offlineThreadingId: result.offlineThreadingId
+          }
+        });
+      } catch (err) {
+        log('X FAST SEND ERROR', { message: err.message });
+        return json(res, 500, { ok: false, error: `Fast send error: ${err.message}` });
+      }
+    }
+
+    log('─── STANDARD DM REQUEST (Unresolved) ───', {
       recipient,
       textLength: text.length,
       textPreview: text.substring(0, 100),
@@ -193,8 +303,10 @@ const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
-  if (req.method === 'POST' && req.url === '/api/send-dm') {
-    return proxyToInstagram(req, res);
+  if (req.method === 'POST') {
+    if (req.url === '/api/verify-session') return handleVerifySession(req, res);
+    if (req.url === '/api/resolve-recipients') return handleResolveRecipients(req, res);
+    if (req.url === '/api/send-dm') return proxyToInstagram(req, res);
   }
 
   let reqPath = req.url.split('?')[0];
